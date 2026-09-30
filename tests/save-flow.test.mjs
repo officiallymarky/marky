@@ -111,9 +111,11 @@ test("a conflict leaves the document dirty and can be forced through", async () 
     return { path, name: "a.md" };
   });
 
-  assert.deepEqual(await save(), { kind: "conflict", conflict: "changed" });
+  const conflict = await save();
+  assert.equal(conflict.kind, "conflict");
+  assert.equal(conflict.conflict, "changed");
   assert.equal(current.state.dirty, true, "a blocked save must stay dirty");
-  assert.deepEqual(await save(false, true), { kind: "saved" });
+  assert.deepEqual(await save(false, conflict), { kind: "saved" });
   assert.equal(current.state.dirty, false);
   assert.deepEqual(writes, [
     { path: "a.md", content: "edit", force: false },
@@ -128,4 +130,88 @@ test("cancelling Save As preserves the document path and unsaved state", async (
   assert.deepEqual(await save(true), { kind: "cancelled" });
   assert.equal(current.path, "a.md");
   assert.equal(current.state.dirty, true);
+});
+
+test("an old document's delayed conflict is stale, not actionable on the new document", async () => {
+  const first = document("a.md", "edited A");
+  let current = first;
+  const started = deferred();
+  const release = deferred();
+  const save = createSaveHandler(() => current, async () => {
+    started.resolve();
+    await release.promise;
+    return { path: "a.md", name: "a.md", conflict: "changed" };
+  });
+  const saving = save();
+  await started.promise;
+  current = document("b.md", "original B");
+  release.resolve();
+  assert.deepEqual(await saving, { kind: "stale" });
+  assert.equal(current.path, "b.md");
+  assert.equal(current.state.content, "original B");
+});
+
+test("Save As conflict overwrite uses the chosen destination, including for untitled documents", async () => {
+  for (const originalPath of ["b.md", null]) {
+    const current = document(originalPath, "original");
+    current.state.update("edited");
+    const files = new Map([["a.md", "outside edit"], ["b.md", "original"]]);
+    const save = createSaveHandler(() => current, async (path, content, force) => {
+      if (!force) return { path: "a.md", name: "a.md", conflict: "changed" };
+      files.set(path, content);
+      return { path, name: "a.md" };
+    });
+    const conflict = await save(true);
+    assert.equal(conflict.kind, "conflict");
+    assert.equal(current.path, originalPath, "a blocked Save As must not redirect the session");
+    assert.deepEqual(await save(false, conflict), { kind: "saved" });
+    assert.equal(files.get("a.md"), "edited");
+    assert.equal(files.get("b.md"), "original");
+    assert.equal(current.path, "a.md");
+    assert.equal(current.state.dirty, false);
+  }
+});
+
+test("a document switch while a conflict prompt is open cannot authorize a forced write", async () => {
+  const first = document("a.md", "edited A");
+  let current = first;
+  const writes = [];
+  const save = createSaveHandler(() => current, async (path, content, force) => {
+    writes.push({ path, content, force });
+    return { path, name: path, conflict: "changed" };
+  });
+  const conflict = await save();
+  current = document("b.md", "original B");
+  assert.deepEqual(await save(false, conflict), { kind: "stale" });
+  assert.equal(writes.length, 1, "only the original guarded save may reach disk");
+  assert.equal(current.state.content, "original B");
+});
+
+test("queued conflict overwrite rechecks the document before reaching disk", async () => {
+  const first = document("a.md", "edited A");
+  let current = first;
+  const started = deferred();
+  const release = deferred();
+  const files = new Map([["a.md", "outside A"], ["b.md", "original B"]]);
+  let attempts = 0;
+  let forcedWrites = 0;
+  const save = createSaveHandler(() => current, async (path, content, force) => {
+    attempts += 1;
+    if (attempts === 1) return { path, name: path, conflict: "changed" };
+    if (force) forcedWrites += 1;
+    started.resolve();
+    await release.promise;
+    files.set(path, content);
+    return { path, name: path };
+  });
+  const conflict = await save();
+  const precedingSave = save();
+  await started.promise;
+  const overwrite = save(false, conflict);
+  current = document("b.md", "original B");
+  release.resolve();
+  assert.deepEqual(await precedingSave, { kind: "stale" });
+  assert.deepEqual(await overwrite, { kind: "stale" });
+  assert.equal(forcedWrites, 0);
+  assert.equal(files.get("b.md"), "original B");
 });

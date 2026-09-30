@@ -255,19 +255,25 @@ async function doSave(saveAs = false): Promise<boolean> {
   if (result.kind !== "conflict") return false;
 
   const conflict = result.conflict;
-  const path = documentSession.path;
+  const session = result.session;
+  const path = result.path;
   return resolveSaveConflict(conflict, {
-    choose: () => chooseConflictAction(conflict, documentSession.name),
+    choose: () =>
+      session === documentSession
+        ? chooseConflictAction(conflict, result.name)
+        : Promise.resolve("keep-editing"),
     overwrite: async () => {
-      const forced = await saveCurrentDocument(false, true);
+      const forced = await saveCurrentDocument(false, result);
       if (forced.kind === "saved") refreshChrome();
       return forced.kind === "saved";
     },
     alternate: async () => {
+      if (session !== documentSession) return false;
       // A removed file cannot be reloaded; offer Save As instead.
       if (conflict === "removed") return doSave(true);
-      if (!path) return false;
-      await replaceDocument(await loadDocument(path));
+      const reloaded = await loadDocument(path);
+      if (session !== documentSession) return false;
+      await replaceDocument(reloaded);
       return true;
     },
     showError,
