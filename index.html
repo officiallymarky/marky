@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>marky</title>
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+
+  <body>
+    <main id="app">
+      <div id="frontmatter" hidden>
+        <div id="frontmatter-head">
+          <span>Frontmatter</span>
+          <span>YAML</span>
+        </div>
+        <textarea
+          id="frontmatter-editor"
+          spellcheck="false"
+          placeholder="title: My document"
+        ></textarea>
+      </div>
+      <textarea id="raw-editor" hidden spellcheck="false"></textarea>
+      <div id="editor"></div>
+    </main>
+    <div id="find-bar" hidden>
+      <div class="find-row">
+        <button id="replace-toggle" type="button" aria-expanded="false" title="Toggle replace (Ctrl+H)">&#9656;</button>
+        <input id="find-input" type="text" placeholder="Find" spellcheck="false" />
+        <span id="find-count"></span>
+        <button id="find-case" type="button" aria-pressed="false" title="Match case">Aa</button>
+        <button id="find-prev" type="button" title="Previous match (Shift+Enter)">&#8593;</button>
+        <button id="find-next" type="button" title="Next match (Enter)">&#8595;</button>
+        <button id="find-close" type="button" title="Close (Esc)">&#10005;</button>
+      </div>
+      <div class="find-row" id="replace-row" hidden>
+        <input id="replace-input" type="text" placeholder="Replace with" spellcheck="false" />
+        <button id="replace-one" type="button">Replace</button>
+        <button id="replace-all" type="button">Replace All</button>
+      </div>
+    </div>
+    <footer id="statusbar">
+      <span id="status-words">0 words</span>
+      <span id="status-chars">0 chars</span>
+      <span id="status-focus" hidden>Focus mode (F8)</span>
+      <button id="status-raw" type="button" aria-pressed="false">Raw mode</button>
+      <span id="status-path">unsaved</span>
+    </footer>
+  </body>
+</html>

@@ -1,0 +1,374 @@
+import { parseScalar } from "./frontmatter.ts";
+
+export interface FrontMatterFields {
+  /** Document title; empty string omits the `title` key. */
+  title: string;
+  /** ISO date (YYYY-MM-DD) or null to omit the `date` key. */
+  date: string | null;
+  tags: string[];
+  aliases: string[];
+  /** Document status; empty string omits the `status` key. */
+  status: string;
+}
+
+/** Keys the dialog reads and updates; everything else is preserved as-is. */
+const KNOWN_KEYS = ["title", "date", "tags", "aliases", "status"] as const;
+
+/**
+ * YAML scalar for one-line values: plain when it round-trips safely,
+ * otherwise a double-quoted scalar (JSON escaping, which is valid YAML).
+ */
+function scalar(value: string): string {
+  const trimmed = value.trim();
+  const plainUnsafe =
+    !trimmed ||
+    /^(?:[-?:,[\]{}#&*!|>'"%@`])/.test(trimmed) ||
+    /[:]|[#]/.test(trimmed) ||
+    /^(?:~|null|true|false)$/i.test(trimmed) ||
+    /^[+-]?(?:0[xX][\da-fA-F_]+|0[oO][0-7_]+|0[bB][01_]+)$/.test(trimmed) ||
+    /^[+-]?(?:\d[\d_]*(?:\.[\d_]*)?|\.[\d_]+)(?:e[+-]?\d[\d_]*)?$/.test(
+      trimmed,
+    );
+  return plainUnsafe ? JSON.stringify(trimmed) : trimmed;
+}
+
+function flowList(items: string[]): string {
+  return `[${items.map((item) => JSON.stringify(item)).join(", ")}]`;
+}
+
+/** Builds the byte-exact front-matter block for the dialog's fields. */
+export function buildFrontMatterBlock(fields: FrontMatterFields): string {
+  const lines = ["---"];
+  const title = fields.title.trim();
+  if (title) lines.push(`title: ${scalar(title)}`);
+  if (fields.date) lines.push(`date: ${scalar(fields.date)}`);
+  if (fields.tags.length) lines.push(`tags: ${flowList(fields.tags)}`);
+  if (fields.aliases.length) lines.push(`aliases: ${flowList(fields.aliases)}`);
+  const status = fields.status.trim();
+  if (status) lines.push(`status: ${scalar(status)}`);
+  lines.push("---", "");
+  return `${lines.join("\n")}\n`;
+}
+
+/** Local today as YYYY-MM-DD (the "sv" locale renders exactly that shape). */
+export function todayIsoDate(): string {
+  return new Date().toLocaleDateString("sv");
+}
+
+/** Reads plain strings and JSON-quoted strings; other YAML list syntax is unsupported. */
+function parseFlowList(value: string): string[] | null {
+  const match = /^\[(.*)]$/.exec(value.trim());
+  if (!match) return null;
+  const items: string[] = [];
+  const inner = match[1];
+  let index = 0;
+  while (index < inner.length) {
+    while (inner[index] === " " || inner[index] === "\t") index += 1;
+    if (index === inner.length) break;
+    if (inner[index] === '"') {
+      let end = -1;
+      for (let cursor = index + 1; cursor < inner.length; cursor += 1) {
+        if (inner[cursor] === "\\") {
+          cursor += 1;
+        } else if (inner[cursor] === '"') {
+          end = cursor;
+          break;
+        }
+      }
+      if (end < 0) return null;
+      try {
+        items.push(JSON.parse(inner.slice(index, end + 1)) as string);
+      } catch {
+        return null;
+      }
+      index = end + 1;
+    } else {
+      const comma = inner.indexOf(",", index);
+      const raw = (comma < 0 ? inner.slice(index) : inner.slice(index, comma)).trim();
+      // Never reinterpret YAML collections, quoted values or typed scalars
+      // as plain strings when the dialog regenerates the list.
+      if (
+        !raw ||
+        raw.startsWith("'") ||
+        /[[\]{}:#]/.test(raw) ||
+        parseScalar(raw) !== raw
+      ) return null;
+      items.push(raw);
+      index = comma < 0 ? inner.length : comma;
+    }
+    while (inner[index] === " " || inner[index] === "\t") index += 1;
+    if (index < inner.length) {
+      if (inner[index] !== ",") return null;
+      index += 1;
+    }
+  }
+  return items;
+}
+
+interface KeyPresence {
+  /** Line index of a single-line `key:` entry, or -1 when absent. */
+  line: number;
+  /** True when the key has a value the dialog cannot rewrite safely. */
+  complex: boolean;
+}
+
+function keyLine(lines: string[], key: string): KeyPresence {
+  const pattern = new RegExp(
+    `^(?:${key}|'${key}'|"${key}")[ \\t]*:(.*)$`,
+  );
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = pattern.exec(lines[index].replace(/\r$/, ""));
+    if (!match) continue;
+    const raw = match[1].trim();
+    if (!raw || raw.startsWith("#") || raw.startsWith("|") || raw.startsWith(">")) {
+      let next = index + 1;
+      while (next < lines.length && /^(?:[ \t]*|[ \t]*#.*)\r?$/.test(lines[next])) next += 1;
+      const nested = /^[ \t]|^-(?:[ \t]|\r?$)/.test(lines[next] ?? "");
+      return { line: nested ? -2 : index, complex: nested };
+    }
+    return { line: index, complex: false };
+  }
+  return { line: -1, complex: false };
+}
+
+export interface ReadFrontMatter {
+  prefill: FrontMatterFields;
+  /** False when a known value uses YAML syntax the dialog cannot rewrite safely. */
+  supported: boolean;
+}
+
+/** Reads the dialog's fields from an existing front-matter block. */
+export function readKnownFields(front: string): ReadFrontMatter {
+  const lines = front.split("\n");
+  let supported = true;
+  const read = (key: string): string => {
+    const presence = keyLine(lines, key);
+    if (presence.complex) supported = false;
+    if (presence.line < 0) return "";
+    const value = lines[presence.line].replace(/^(?:[^:]*):/, "").trim();
+    return parseScalar(value) ?? "";
+  };
+  const readList = (key: string): string[] => {
+    const presence = keyLine(lines, key);
+    if (presence.complex) supported = false;
+    if (presence.line < 0) return [];
+    const value = lines[presence.line].replace(/^(?:[^:]*):/, "").trim();
+    if (!value || value.startsWith("#")) return [];
+    const items = parseFlowList(value);
+    if (items === null) supported = false;
+    return items ?? [];
+  };
+  // Build prefill first: the reads set `supported`, and an object literal
+  // would capture `supported` before its own property reads ran.
+  const prefill: FrontMatterFields = {
+    title: read("title"),
+    date: read("date") || null,
+    tags: readList("tags"),
+    aliases: readList("aliases"),
+    status: read("status"),
+  };
+  return { supported, prefill };
+}
+
+/**
+ * Rewrites the known keys of an existing front-matter block in place,
+ * preserving every other line byte-exact. Returns null when a known value
+ * uses YAML syntax the dialog cannot rewrite safely.
+ */
+export function updateFrontMatterBlock(
+  front: string,
+  fields: FrontMatterFields,
+): string | null {
+  if (!readKnownFields(front).supported) return null;
+  const lines = front.split("\n");
+  const crlf = lines.map((line) => line.endsWith("\r"));
+  const closeIndexOf = () => {
+    for (let index = lines.length - 1; index > 0; index -= 1) {
+      if (lines[index].replace(/\r$/, "") === "---") return index;
+    }
+    return -1;
+  };
+  if (closeIndexOf() < 0) return null;
+
+  for (const key of KNOWN_KEYS) {
+    const presence = keyLine(lines, key);
+    if (presence.complex) return null;
+    const value =
+      key === "title"
+        ? fields.title.trim()
+        : key === "date"
+          ? (fields.date ?? "")
+          : key === "status"
+            ? fields.status.trim()
+            : "";
+    const list = key === "tags" ? fields.tags : key === "aliases" ? fields.aliases : [];
+    const rendered = list.length
+      ? `${key}: ${flowList(list)}`
+      : value
+        ? `${key}: ${scalar(value)}`
+        : "";
+    if (presence.line >= 0) {
+      if (rendered) {
+        lines[presence.line] = rendered + (crlf[presence.line] ? "\r" : "");
+      } else {
+        lines.splice(presence.line, 1);
+        crlf.splice(presence.line, 1);
+      }
+    } else if (rendered) {
+      // Re-locate the closing fence: earlier splices shift indices.
+      const closeIndex = closeIndexOf();
+      lines.splice(closeIndex, 0, rendered + (crlf[closeIndex] ? "\r" : ""));
+      crlf.splice(closeIndex, 0, false);
+    }
+  }
+  return lines.join("\n");
+}
+
+interface WizardElements {
+  dialog: HTMLDialogElement;
+  title: HTMLInputElement;
+  includeDate: HTMLInputElement;
+  date: HTMLInputElement;
+  tags: HTMLInputElement;
+  aliases: HTMLInputElement;
+  status: HTMLInputElement;
+  form: HTMLFormElement;
+}
+
+function buildWizardDom(): WizardElements {
+  const dialog = document.createElement("dialog");
+  dialog.id = "frontmatter-wizard";
+  dialog.innerHTML = `
+    <form method="dialog">
+      <h2>Front matter</h2>
+      <label>
+        <span>Title</span>
+        <input name="title" type="text" placeholder="Document title" />
+      </label>
+      <div class="wizard-row">
+        <label class="wizard-check">
+          <input name="includeDate" type="checkbox" checked />
+          <span>Date</span>
+        </label>
+        <input name="date" type="date" />
+      </div>
+      <label>
+        <span>Tags (comma separated)</span>
+        <input name="tags" type="text" placeholder="notes, project" />
+      </label>
+      <label>
+        <span>Aliases (comma separated)</span>
+        <input name="aliases" type="text" placeholder="alternative names" />
+      </label>
+      <label>
+        <span>Status</span>
+        <input name="status" type="text" placeholder="draft, published, …" />
+      </label>
+      <menu>
+        <li><button type="button" value="cancel">Cancel</button></li>
+        <li><button type="submit" value="insert" class="primary">Insert</button></li>
+      </menu>
+    </form>
+  `;
+  document.body.append(dialog);
+  const form = dialog.querySelector("form")!;
+  return {
+    dialog,
+    form,
+    title: form.elements.namedItem("title") as HTMLInputElement,
+    includeDate: form.elements.namedItem("includeDate") as HTMLInputElement,
+    date: form.elements.namedItem("date") as HTMLInputElement,
+    tags: form.elements.namedItem("tags") as HTMLInputElement,
+    aliases: form.elements.namedItem("aliases") as HTMLInputElement,
+    status: form.elements.namedItem("status") as HTMLInputElement,
+  };
+}
+
+// Handlers are attached once, but each open swaps in its own resolver:
+// a creation-time closure would only ever resolve the first request.
+let currentResolve:
+  | ((fields: FrontMatterFields | null) => void)
+  | null = null;
+let activeRequest: Promise<FrontMatterFields | null> | null = null;
+let currentFocusRestore: (() => void) | null = null;
+
+/**
+ * Shows the front-matter dialog. Resolves the entered fields, or null when
+ * cancelled; `submitLabel` switches the button for edit mode.
+ */
+export function openFrontMatterWizard(
+  defaults: Partial<FrontMatterFields> = {},
+  options: { submitLabel?: string } = {},
+): Promise<FrontMatterFields | null> {
+  // A repeat trigger while the dialog is open must not call showModal twice.
+  // A pending request whose dialog is gone (closed without running the
+  // close handler, e.g. a page restore) must heal instead of wedging.
+  const existing = document.getElementById(
+    "frontmatter-wizard",
+  ) as HTMLDialogElement | null;
+  if (activeRequest && existing?.open) return activeRequest;
+  const { promise, resolve } = Promise.withResolvers<FrontMatterFields | null>();
+  activeRequest = promise;
+
+  let wizard = existing;
+  if (!wizard) {
+    const elements = buildWizardDom();
+    wizard = elements.dialog;
+    elements.form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      elements.dialog.close("insert");
+    });
+    wizard
+      .querySelector<HTMLButtonElement>("button[value=cancel]")!
+      .addEventListener("click", () => elements.dialog.close("cancel"));
+    elements.dialog.addEventListener("close", () => {
+      const fields =
+        elements.dialog.returnValue !== "insert"
+          ? null
+          : {
+              title: elements.title.value,
+              date: elements.includeDate.checked ? elements.date.value : null,
+              tags: elements.tags.value
+                .split(",")
+                .map((tag) => tag.trim())
+                .filter(Boolean),
+              aliases: elements.aliases.value
+                .split(",")
+                .map((alias) => alias.trim())
+                .filter(Boolean),
+              status: elements.status.value,
+            };
+      const resolveRequest = currentResolve;
+      const restore = currentFocusRestore;
+      currentResolve = null;
+      currentFocusRestore = null;
+      restore?.();
+      resolveRequest?.(fields);
+    });
+  }
+
+  wizard.querySelector<HTMLInputElement>("input[name=title]")!.value =
+    defaults.title ?? "";
+  const includeDate = wizard.querySelector<HTMLInputElement>(
+    "input[name=includeDate]",
+  )!;
+  const date = wizard.querySelector<HTMLInputElement>("input[name=date]")!;
+  includeDate.checked = defaults.date != null;
+  date.value = defaults.date ?? todayIsoDate();
+  wizard.querySelector<HTMLInputElement>("input[name=tags]")!.value =
+    defaults.tags?.join(", ") ?? "";
+  wizard.querySelector<HTMLInputElement>("input[name=aliases]")!.value =
+    defaults.aliases?.join(", ") ?? "";
+  wizard.querySelector<HTMLInputElement>("input[name=status]")!.value =
+    defaults.status ?? "";
+  const primary = wizard.querySelector<HTMLButtonElement>("button.primary")!;
+  primary.textContent = options.submitLabel ?? "Insert";
+  // Escape leaves returnValue unchanged; reset so a cancel cannot inherit
+  // "insert" from a previous use of the reused dialog.
+  const previousFocus = document.activeElement;
+  currentFocusRestore = () => (previousFocus as HTMLElement | null)?.focus();
+  currentResolve = resolve;
+  wizard.returnValue = "";
+  wizard.showModal();
+  return promise;
+}

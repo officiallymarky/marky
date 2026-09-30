@@ -1,0 +1,135 @@
+name: CI
+
+# Verify every push to main and every pull request. Bundle builds (deb, rpm,
+# AppImage) run on demand and on version tags, where they are also published as
+# a GitHub release. CI runs the justfile recipes, so it uses the same commands
+# as a local checkout.
+#
+# Release assets carry the version from src-tauri/tauri.conf.json, not the tag:
+# bump it (and package.json / Cargo.toml) before pushing a v* tag.
+#
+# Third-party actions are pinned to commit SHAs (immutable); actions/* are
+# GitHub first-party and stay on major tags.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    # ubuntu-22.04 keeps the glibc baseline low so the deb and AppImage run on
+    # systems older than the runner image.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+        with:
+          version: 11.22.0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: pnpm
+
+      # Mirrors the toolchain the project is verified against locally; bump
+      # together with local rustup updates (or switch to `stable`).
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch
+        with:
+          toolchain: 1.98.1
+          components: clippy
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install just
+        # Pinned release verified against its published sha256.
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/just.tar.gz" \
+            https://github.com/casey/just/releases/download/1.58.0/just-1.58.0-x86_64-unknown-linux-musl.tar.gz
+          echo "4a5cc2f53e6f0f8c59092a6cc38291eb729d46a7dd95d3ae582008881b84931d  $RUNNER_TEMP/just.tar.gz" | sha256sum -c -
+          sudo tar -xzf "$RUNNER_TEMP/just.tar.gz" -C /usr/local/bin just
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend
+        # dist/ must exist before any cargo step: tauri-codegen fails when
+        # frontendDist (../dist) is missing, so verify cannot run on a clean clone.
+        run: pnpm build
+
+      - name: Verify
+        run: just verify
+
+      - name: Build bundles
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+        # Never set CARGO_NET_OFFLINE here: the linuxdeploy step needs the network.
+        run: just build
+
+      - name: Upload bundles
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v7
+        with:
+          name: marky-linux-x86_64
+          # Only the distributables. The bundler also leaves unpacked AppDir and
+          # deb/rpm build trees next to them, which are ~3x the size of the
+          # bundles and of no use to a downloader.
+          path: |
+            src-tauri/target/release/marky
+            src-tauri/target/release/bundle/appimage/*.AppImage
+            src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/rpm/*.rpm
+          if-no-files-found: error
+          # Tagged builds live on as release assets; artifacts are a convenience.
+          retention-days: 14
+
+  release:
+    needs: verify
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          name: marky-linux-x86_64
+          path: release-assets
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # This job has no checkout step, so gh cannot infer the repository.
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            release-assets/bundle/appimage/*.AppImage \
+            release-assets/bundle/deb/*.deb \
+            release-assets/bundle/rpm/*.rpm
