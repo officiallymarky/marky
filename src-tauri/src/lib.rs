@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fs::{self, OpenOptions};
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -123,21 +123,45 @@ fn file_name_of(path: &str) -> String {
         .to_string()
 }
 
-fn read_document(path: &str) -> Result<Document, String> {
-    let content = std::fs::read_to_string(path)
-        .map_err(|e| format!("Could not open {}: {e}", file_name_of(path)))?;
+/// Reads content and its conflict baseline from the same open file.
+fn read_tracked_document(identities: &DocumentIdentities, path: &str) -> Result<Document, String> {
+    read_tracked_document_with(identities, path, |file| {
+        let mut content = String::new();
+        file.read_to_string(&mut content)?;
+        Ok(content)
+    })
+}
+
+fn read_tracked_document_with(
+    identities: &DocumentIdentities,
+    path: &str,
+    read_content: impl FnOnce(&mut fs::File) -> io::Result<String>,
+) -> Result<Document, String> {
+    let read = || -> io::Result<(String, FileIdentity)> {
+        let mut file = fs::File::open(path)?;
+        let identity = FileIdentity::from_metadata(&file.metadata()?);
+        let content = read_content(&mut file)?;
+        let after = FileIdentity::from_metadata(&file.metadata()?);
+        if identity != after || content.len() as u64 != identity.length {
+            return Err(io::Error::other(
+                "File changed while being read; open it again",
+            ));
+        }
+        Ok((content, identity))
+    };
+    let (content, identity) =
+        read().map_err(|e| format!("Could not open {}: {e}", file_name_of(path)))?;
+    // Do not stat the pathname here: it may now refer to a replacement file.
+    identities
+        .entries
+        .lock()
+        .map_err(|_| "Could not record the document's file identity".to_string())?
+        .insert(path.to_string(), identity);
     Ok(Document {
         path: Some(path.to_string()),
         name: file_name_of(path),
         content,
     })
-}
-
-/// Reads a document and remembers the version it came from.
-fn read_tracked_document(identities: &DocumentIdentities, path: &str) -> Result<Document, String> {
-    let document = read_document(path)?;
-    identities.record(path);
-    Ok(document)
 }
 
 fn detect_conflict(expected: &FileIdentity, path: &Path) -> Option<ConflictKind> {
@@ -206,10 +230,13 @@ fn document_status(identities: &DocumentIdentities, path: &str) -> DocumentStatu
     }
 }
 
-fn startup_document_from_argument(argument: Option<&str>) -> Result<Option<Document>, String> {
+fn startup_document_from_argument(
+    identities: &DocumentIdentities,
+    argument: Option<&str>,
+) -> Result<Option<Document>, String> {
     match argument {
         None => Ok(None),
-        Some(path) => read_document(path).map(Some),
+        Some(path) => read_tracked_document(identities, path).map(Some),
     }
 }
 
@@ -218,14 +245,7 @@ fn startup_document_from_argument(argument: Option<&str>) -> Result<Option<Docum
 fn startup_document(
     state: tauri::State<'_, DocumentIdentities>,
 ) -> Result<Option<Document>, String> {
-    let document = startup_document_from_argument(std::env::args().nth(1).as_deref())?;
-    if let Some(path) = document
-        .as_ref()
-        .and_then(|document| document.path.as_deref())
-    {
-        state.record(path);
-    }
-    Ok(document)
+    startup_document_from_argument(&state, std::env::args().nth(1).as_deref())
 }
 
 #[tauri::command]
@@ -697,10 +717,11 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        atomic_write, document_status, save_to_path, startup_document_from_argument, ConflictKind,
-        DocumentIdentities,
+        atomic_write, document_status, read_tracked_document, read_tracked_document_with,
+        save_to_path, startup_document_from_argument, ConflictKind, DocumentIdentities,
     };
     use std::fs;
+    use std::io::Read;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temporary_directory() -> std::path::PathBuf {
@@ -881,7 +902,15 @@ mod tests {
         fs::write(&path, "# hello").unwrap();
         let argument = path.to_string_lossy().into_owned();
 
-        let result = startup_document_from_argument(Some(&argument));
+        let identities = DocumentIdentities::default();
+        let result = startup_document_from_argument(&identities, Some(&argument));
+        assert_eq!(document_status(&identities, &argument).status, "unchanged");
+        fs::write(&path, "external edit").unwrap();
+        assert_eq!(
+            save_to_path(&identities, &argument, "my edit", false).unwrap(),
+            Some(ConflictKind::Changed)
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), "external edit");
         fs::remove_dir_all(directory).unwrap();
 
         let document = match result {
@@ -896,7 +925,7 @@ mod tests {
 
     #[test]
     fn startup_document_without_argument_is_none() {
-        match startup_document_from_argument(None) {
+        match startup_document_from_argument(&DocumentIdentities::default(), None) {
             Ok(None) => {}
             Ok(Some(_)) => panic!("expected no document without an argument"),
             Err(error) => panic!("expected no argument to succeed, got error: {error}"),
@@ -910,7 +939,10 @@ mod tests {
         let argument = path.to_string_lossy().into_owned();
         fs::remove_dir_all(directory).unwrap();
 
-        let error = match startup_document_from_argument(Some(&argument)) {
+        let error = match startup_document_from_argument(
+            &DocumentIdentities::default(),
+            Some(&argument),
+        ) {
             Err(error) => error,
             Ok(_) => panic!("expected a missing file to error"),
         };
@@ -924,7 +956,9 @@ mod tests {
         let path = directory.join("notes.md");
         fs::write(&path, [0xFF, 0xFE, 0x00]).unwrap();
         let argument = path.to_string_lossy().into_owned();
-        let result = startup_document_from_argument(Some(&argument));
+        let identities = DocumentIdentities::default();
+        let result = startup_document_from_argument(&identities, Some(&argument));
+        assert!(identities.expected(&argument).is_none());
         fs::remove_dir_all(directory).unwrap();
 
         let error = match result {
@@ -934,6 +968,94 @@ mod tests {
         assert!(error.contains("Could not open"), "unexpected error: {error}");
         assert!(error.contains("notes.md"), "unexpected error: {error}");
         assert!(error.contains("UTF-8"), "unexpected error: {error}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn replacement_during_read_keeps_the_original_identity_and_blocks_save() {
+        let directory = temporary_directory();
+        let path = directory.join("notes.md");
+        let replacement = directory.join("replacement.md");
+        fs::write(&path, "old writing").unwrap();
+        fs::write(&replacement, "new external writing").unwrap();
+        let identities = DocumentIdentities::default();
+        let key = path.to_string_lossy().into_owned();
+
+        let document = read_tracked_document_with(&identities, &key, |file| {
+            let mut content = String::new();
+            file.read_to_string(&mut content)?;
+            fs::rename(&replacement, &path)?;
+            Ok(content)
+        })
+        .unwrap();
+        let status = document_status(&identities, &key).status;
+        let save = save_to_path(&identities, &key, "my edit", false).unwrap();
+        let disk = fs::read_to_string(&path).unwrap();
+        fs::remove_dir_all(directory).unwrap();
+
+        assert_eq!(document.content, "old writing");
+        assert_eq!(status, "changed");
+        assert_eq!(save, Some(ConflictKind::Changed));
+        assert_eq!(disk, "new external writing");
+    }
+
+    #[test]
+    fn in_place_change_during_read_rejects_content_and_preserves_baseline() {
+        let directory = temporary_directory();
+        let path = directory.join("notes.md");
+        fs::write(&path, "original").unwrap();
+        let identities = DocumentIdentities::default();
+        let key = path.to_string_lossy().into_owned();
+        read_tracked_document(&identities, &key).unwrap();
+        let baseline = identities.expected(&key).unwrap();
+
+        let result = read_tracked_document_with(&identities, &key, |file| {
+            let mut content = String::new();
+            file.read_to_string(&mut content)?;
+            fs::write(&path, "modified")?;
+            // Same-sized writes must also be detected, without timing sleeps.
+            let modified = baseline.modified.unwrap() + std::time::Duration::from_secs(1);
+            fs::OpenOptions::new()
+                .write(true)
+                .open(&path)?
+                .set_modified(modified)?;
+            Ok(content)
+        });
+        let expected = identities.expected(&key);
+        let save = save_to_path(&identities, &key, "my edit", false).unwrap();
+        let disk = fs::read_to_string(&path).unwrap();
+        fs::remove_dir_all(directory).unwrap();
+
+        let error = result.err().expect("an unstable read must fail");
+        assert!(error.contains("File changed while being read"), "{error}");
+        assert_eq!(expected, Some(baseline));
+        assert_eq!(save, Some(ConflictKind::Changed));
+        assert_eq!(disk, "modified");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn removal_during_read_is_not_mistaken_for_an_untracked_file() {
+        let directory = temporary_directory();
+        let path = directory.join("notes.md");
+        fs::write(&path, "old writing").unwrap();
+        let identities = DocumentIdentities::default();
+        let key = path.to_string_lossy().into_owned();
+
+        let document = read_tracked_document_with(&identities, &key, |file| {
+            let mut content = String::new();
+            file.read_to_string(&mut content)?;
+            fs::remove_file(&path)?;
+            Ok(content)
+        })
+        .unwrap();
+        let save = save_to_path(&identities, &key, "my edit", false).unwrap();
+        let exists = path.exists();
+        fs::remove_dir_all(directory).unwrap();
+
+        assert_eq!(document.content, "old writing");
+        assert_eq!(save, Some(ConflictKind::Removed));
+        assert!(!exists);
     }
 
     #[test]
