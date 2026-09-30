@@ -55,9 +55,10 @@ body. Front matter is kept separate from rich-text serialization, preserving its
 contents when you edit the document body.
 
 The **Front Matter** dialog creates or updates a title, date, tags, aliases, and
-status. It preserves unrelated YAML and leaves unsupported multiline values
-untouched. A supported single-line `title` value becomes the window title;
-otherwise, marky uses the file name.
+status. It preserves unrelated YAML and refuses unsupported multiline values or
+list syntax rather than rewriting them unsafely; use the front-matter panel or
+source mode for those edits. A supported single-line `title` value becomes the
+window title; otherwise, marky uses the file name.
 
 ### File protection
 
@@ -69,10 +70,38 @@ edits prompt before reloading.
 If you edit the document, reopen it, or switch editing modes while a reload is
 pending, marky abandons that reload rather than replacing your current buffer.
 
+The content and version fingerprint come from the same open file, with a
+stability check around the read. A replacement remains detectable as an outside
+change; a file modified in place during reading is rejected rather than accepted
+as a trustworthy baseline.
+
 Closing a document with unsaved changes offers **Save**, **Close without saving**,
 or **Keep editing**. Read-only files are rejected on save. Atomic replacement is
 used where file metadata can be preserved; files that require in-place writes,
 such as hard-linked files, retain that behavior.
+
+### Crash recovery
+
+marky automatically backs up unsaved writing to private recovery files in the
+application data directory's `recovery/` folder. Snapshots include untitled
+documents, rich-editor and source-mode edits, and front matter. They do **not**
+save over the original Markdown file.
+
+Snapshots are scheduled after a 500 ms pause in editing, or within a two-second
+window during continuous typing. Writes use atomic replacement and filesystem
+syncs. Each document session has its own snapshot; running instances cannot
+claim or discard one another's active backups.
+
+On startup, snapshots left by a stopped instance offer **Restore**, **Discard**,
+or **Later**. Restore opens the recovered source in raw mode as an **unsaved
+copy**, leaving the original file untouched even if it changed on disk. Use Save
+or Save As to choose where to keep the recovered writing. Later retains the
+backup for a future startup; after restoring one document, any other available
+backups remain deferred.
+
+A successful save clears the backup when no edits remain unsaved. Edits made
+while a save is running remain eligible for recovery. Explicitly discarding a
+document also removes its backup; cancelling a close keeps it.
 
 ## Usage
 
@@ -141,6 +170,8 @@ release binary is at `src-tauri/target/release/marky`.
 | --- | --- |
 | `src/` | TypeScript editor, toolbar, search, proofreading, and document workflows |
 | `src-tauri/` | Rust application shell, native menus and dialogs, and file access |
+| `src/recovery.ts` | Debounced recovery snapshots, serialized writes, and save/discard cleanup |
+| `src-tauri/src/recovery.rs` | Private, atomic snapshot storage and multi-instance recovery locks |
 | `tests/` | Frontend behavioral tests |
 | `examples/` | Sample Markdown documents |
 | `ROADMAP.md` | Planned work and implementation status |
@@ -160,6 +191,9 @@ rebuild. The debug binary requires the development frontend server on port 1420;
 
 - Image paste and upload, PDF/HTML/DOCX export, and mathematical notation are not
   implemented.
+- Recovery is periodic, not a per-keystroke guarantee: a crash before the next
+  completed snapshot can still lose the most recent edits. Private recovery files
+  are not encrypted.
 - Search matches cannot span formatting boundaries, such as plain text followed
   by bold text.
 - Spelling and grammar checking applies only to the rich editor, not source mode

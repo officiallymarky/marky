@@ -15,6 +15,8 @@ use tauri::Emitter;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_dialog::DialogExt;
 
+mod recovery;
+
 const APP_TITLE: &str = "marky";
 static NEXT_TEMP_FILE_ID: AtomicU64 = AtomicU64::new(0);
 
@@ -552,6 +554,79 @@ fn set_window_title(app: AppHandle, name: String, dirty: bool) -> Result<(), Str
         .map_err(|e| format!("Could not set window title: {e}"))
 }
 
+/// Runs a recovery filesystem operation off the async runtime. The work is
+/// small, but the async runtime must never block on file IO.
+async fn recovery_result<T, F>(operation: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    match tauri::async_runtime::spawn_blocking(operation).await {
+        Ok(result) => result,
+        Err(e) => Err(format!("recovery task failed: {e}")),
+    }
+}
+
+/// Persists a private crash-recovery snapshot. The backend assigns
+/// `updatedAt` and holds the per-id advisory lock for the session.
+#[tauri::command]
+async fn write_recovery(
+    store: tauri::State<'_, recovery::RecoveryStore>,
+    snapshot: recovery::RecoveryWrite,
+) -> Result<(), String> {
+    let store = store.inner().clone();
+    let id = snapshot.id.clone();
+    recovery_result(move || {
+        store
+            .write(&snapshot)
+            .map_err(|e| format!("failed to write recovery snapshot {id}: {e}"))
+    })
+    .await
+}
+
+/// Lists orphan snapshots left by crashed instances. Valid snapshots are in
+/// `snapshots` (newest first); unreadable ones are reported in `errors`
+/// without content and stay on disk untouched.
+#[tauri::command]
+async fn list_recovery(
+    store: tauri::State<'_, recovery::RecoveryStore>,
+) -> Result<recovery::RecoveryListing, String> {
+    let store = store.inner().clone();
+    recovery_result(move || Ok(store.list())).await
+}
+
+/// Deletes exactly the recovery snapshot with this id; snapshots live in
+/// another instance are refused and absent ids are a no-op.
+#[tauri::command]
+async fn discard_recovery(
+    store: tauri::State<'_, recovery::RecoveryStore>,
+    id: String,
+) -> Result<(), String> {
+    let store = store.inner().clone();
+    recovery_result(move || {
+        store
+            .discard(&id)
+            .map_err(|e| format!("failed to discard recovery snapshot {id}: {e}"))
+    })
+    .await
+}
+
+/// Drops this instance's claim on a deferred startup snapshot without
+/// deleting it.
+#[tauri::command]
+async fn release_recovery(
+    store: tauri::State<'_, recovery::RecoveryStore>,
+    id: String,
+) -> Result<(), String> {
+    let store = store.inner().clone();
+    recovery_result(move || {
+        store
+            .release(&id)
+            .map_err(|e| format!("failed to release recovery snapshot {id}: {e}"))
+    })
+    .await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // NVIDIA Wayland: webkit2gtk crashes or renders a dead webview
@@ -569,12 +644,24 @@ pub fn run() {
             load_document,
             check_document,
             save_document,
-            set_window_title
+            set_window_title,
+            write_recovery,
+            list_recovery,
+            discard_recovery,
+            release_recovery
         ])
         .on_menu_event(|app, event| {
             let _ = app.emit("menu-action", event.id().as_ref());
         })
         .setup(|app| {
+            let recovery_root = app
+                .path()
+                .app_data_dir()
+                .map_err(|e| format!("cannot resolve app data directory: {e}"))?
+                .join("recovery");
+            let recovery_store = recovery::RecoveryStore::new(recovery_root)
+                .map_err(|e| format!("cannot open recovery store: {e}"))?;
+            app.manage(recovery_store);
             #[cfg(target_os = "linux")]
             {
                 use gtk::prelude::*;

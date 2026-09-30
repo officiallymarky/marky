@@ -41,6 +41,11 @@ import {
 import { openTableDialog } from "./table-dialog";
 import { createSearchPanel } from "./search";
 import { readSpellEnabled, writeSpellEnabled } from "./harper";
+import {
+  createRecoveryJournal,
+  type RecoverySnapshot,
+  type RecoveryWrite,
+} from "./recovery";
 
 const editorRoot = document.getElementById("editor")!;
 const statusWords = document.getElementById("status-words")!;
@@ -57,16 +62,61 @@ const frontEditor = document.getElementById(
 const appWindow = getCurrentWindow();
 
 let handle: EditorHandle | null = null;
-let documentSession: SaveSession = {
+type DocumentSession = SaveSession & {
+  recoveryId: string;
+  recoverySourcePath?: string | null;
+};
+
+let documentReady = false;
+let initialized = false;
+let documentSession: DocumentSession = {
   path: null,
   name: "Untitled",
   state: new DocumentState(),
+  recoveryId: crypto.randomUUID(),
 };
 const saveCurrentDocument = createSaveHandler(() => documentSession, saveDocument);
 let rawMode = false;
 let frontContent: string | null = null;
 let lastTitle = "";
 let titleUpdates: Promise<void> = Promise.resolve();
+const recovery = createRecoveryJournal({
+  write: (snapshot) => invoke("write_recovery", { snapshot }),
+  remove: (id) => invoke("discard_recovery", { id }),
+  showError: (error) => void showError("Recovery backup failed", error),
+});
+
+function recoverySnapshot(session = documentSession): RecoveryWrite {
+  return {
+    id: session.recoveryId,
+    path: session.path ?? session.recoverySourcePath ?? null,
+    name: session.name,
+    content: session.state.content,
+  };
+}
+
+/** Flush Milkdown's debounced Markdown callback before saving or leaving. */
+function syncLiveContent() {
+  if (!documentReady) return;
+  const content = rawMode
+    ? rawEditor.value
+    : handle
+      ? combineFrontmatter(frontContent, handle.getMarkdown())
+      : documentSession.state.content;
+  if (content !== documentSession.state.content) {
+    documentSession.state.update(content);
+    refreshChrome();
+  }
+}
+
+async function checkpointRecovery(session = documentSession) {
+  if (session === documentSession) syncLiveContent();
+  try {
+    await recovery.checkpoint(recoverySnapshot(session), session.state.dirty);
+  } catch (error) {
+    await showError("Recovery backup failed", error);
+  }
+}
 
 const countWords = (text: string) => (text.match(/\S+/g) ?? []).length;
 
@@ -87,6 +137,9 @@ function refreshChrome() {
   statusChars.textContent = `${body.length} chars`;
   statusPath.textContent = documentSession.path ?? "unsaved";
   statusPath.title = documentSession.path ?? "";
+  if (documentReady) {
+    recovery.schedule(recoverySnapshot(), dirty);
+  }
 }
 
 function autoGrow(el: HTMLTextAreaElement) {
@@ -112,35 +165,63 @@ function onUpdate(markdown: string) {
   if (searchPanel.isOpen()) searchPanel.refresh();
 }
 
-async function replaceDocument(doc: OpenedDocument) {
+async function replaceDocument(
+  doc: OpenedDocument,
+  recovered?: RecoverySnapshot,
+) {
+  const previous = documentSession;
+  documentReady = false;
   documentSession = {
-    path: doc.path,
+    path: recovered ? null : doc.path,
     name: doc.name,
     state: new DocumentState(),
+    recoveryId: recovered?.id ?? crypto.randomUUID(),
+    recoverySourcePath: recovered?.path,
   };
-  documentSession.state.load(doc.content);
-  if (rawMode) {
-    rawEditor.hidden = true;
-    rawMode = false;
-    statusRaw.classList.remove("active");
-    statusRaw.setAttribute("aria-pressed", "false");
-  }
-  editorRoot.hidden = false;
+  const session = documentSession;
+  session.state.load(doc.content);
+  await handle?.destroy();
+  handle = null;
+  rawMode = recovered !== undefined;
+  rawEditor.hidden = !rawMode;
+  editorRoot.hidden = rawMode;
+  statusRaw.classList.toggle("active", rawMode);
+  statusRaw.setAttribute("aria-pressed", String(rawMode));
   const split = splitFrontmatter(doc.content);
   frontContent = split.front;
   updateFrontPanel();
-  await handle?.destroy();
-  handle = await createEditor(editorRoot, split.body, onUpdate, showError);
-  handle.focus();
-  // The editor normalizes markdown on load (e.g. trailing paragraphs); treat
-  // its canonical form — not the raw file bytes — as the saved baseline.
-  const baseline = combineFrontmatter(frontContent, handle.getMarkdown());
-  documentSession.state.load(baseline);
+  if (recovered) {
+    // Recovery opens exact source bytes as an unsaved copy, never the original.
+    frontWrap.hidden = true;
+    rawEditor.value = doc.content;
+    session.state.restore(doc.content);
+    rawEditor.focus();
+  } else {
+    handle = await createEditor(
+      editorRoot,
+      split.body,
+      (markdown) => {
+        if (documentSession === session) onUpdate(markdown);
+      },
+      showError,
+    );
+    handle.focus();
+    // Canonical Markdown on a normal open is the saved baseline.
+    session.state.load(combineFrontmatter(frontContent, handle.getMarkdown()));
+  }
+  documentReady = true;
   refreshChrome();
   if (searchPanel.isOpen()) searchPanel.retarget(true);
+  if (recovered) await checkpointRecovery();
+  try {
+    await recovery.discard(previous.recoveryId);
+  } catch (error) {
+    await showError("Recovery cleanup failed", error);
+  }
 }
 
 async function confirmDiscard(): Promise<boolean> {
+  syncLiveContent();
   if (!documentSession.state.dirty) return true;
   return ask(`"${documentSession.name}" has unsaved changes. Discard them?`, {
     title: "Unsaved changes",
@@ -243,11 +324,16 @@ async function chooseConflictAction(
  * left unsaved afterwards — written, or reloaded from disk.
  */
 async function doSave(saveAs = false): Promise<boolean> {
+  syncLiveContent();
+  const savedSession = documentSession;
   const result = await saveCurrentDocument(saveAs).catch(async (error: unknown) => {
     await showError("Save failed", error);
     return null;
   });
   if (!result) return false;
+  if (result.kind === "saved" || result.kind === "stale") {
+    await checkpointRecovery(savedSession);
+  }
   if (result.kind === "saved") {
     refreshChrome();
     return true;
@@ -264,7 +350,10 @@ async function doSave(saveAs = false): Promise<boolean> {
         : Promise.resolve("keep-editing"),
     overwrite: async () => {
       const forced = await saveCurrentDocument(false, result);
-      if (forced.kind === "saved") refreshChrome();
+      if (forced.kind === "saved") {
+        await checkpointRecovery();
+        refreshChrome();
+      }
       return forced.kind === "saved";
     },
     alternate: async () => {
@@ -282,6 +371,7 @@ async function doSave(saveAs = false): Promise<boolean> {
 
 async function setRawMode(on: boolean) {
   if (on === rawMode) return;
+  syncLiveContent();
   rawMode = on;
 
   if (on) {
@@ -366,6 +456,7 @@ const searchPanel = createSearchPanel({
 });
 
 window.addEventListener("keydown", (event) => {
+  if (!initialized) return;
   if (event.key === "F7") {
     toggleSpellCheck();
     return;
@@ -436,24 +527,51 @@ frontEditor.addEventListener("input", () => {
   refreshChrome();
 });
 
-appWindow.onCloseRequested(
-  createCloseRequestHandler({
-    isDirty: () => documentSession.state.dirty,
-    confirm: () =>
-      message(`Save changes to "${documentSession.name}" before closing?`, {
-        title: "Unsaved changes",
-        kind: "warning",
-        buttons: {
-          yes: "Save",
-          no: "Close without saving",
-          cancel: "Keep editing",
-        },
-      }),
-    save: () => doSave(),
-    destroy: () => appWindow.destroy(),
-    showError,
-  }),
-);
+const closeRequest = createCloseRequestHandler({
+  isDirty: () => {
+    syncLiveContent();
+    return documentSession.state.dirty;
+  },
+  confirm: () =>
+    message(`Save changes to "${documentSession.name}" before closing?`, {
+      title: "Unsaved changes",
+      kind: "warning",
+      buttons: {
+        yes: "Save",
+        no: "Close without saving",
+        cancel: "Keep editing",
+      },
+    }),
+  save: () => doSave(),
+  destroy: async () => {
+    try {
+      await recovery.discard(documentSession.recoveryId);
+      await appWindow.destroy();
+    } catch (error) {
+      await showError("Could not close safely", error);
+    }
+  },
+  showError,
+});
+
+appWindow.onCloseRequested(async (event) => {
+  if (!initialized) {
+    event.preventDefault();
+    return;
+  }
+  syncLiveContent();
+  if (!documentSession.state.dirty) {
+    event.preventDefault();
+    try {
+      await recovery.discard(documentSession.recoveryId);
+      await appWindow.destroy();
+    } catch (error) {
+      await showError("Could not close safely", error);
+    }
+    return;
+  }
+  await closeRequest(event);
+});
 
 /**
  * Files change under the editor (another editor, a sync tool, git). On focus
@@ -466,7 +584,7 @@ const acknowledgedExternalChanges = new Map<string, string>();
 appWindow.onFocusChanged(async ({ payload: focused }) => {
   // Raw mode edits the source textarea, which the rich-editor buffers below
   // cannot adopt; its saves are still checked by the save guard.
-  if (!focused || rawMode) return;
+  if (!initialized || !focused || rawMode) return;
   const session = documentSession;
   const editor = handle;
   const path = session.path;
@@ -519,6 +637,7 @@ function insertFromMenu(
 }
 
 async function menuAction(action: string): Promise<void> {
+  if (!initialized) return;
   switch (action) {
     case "new":
       return doNew();
@@ -585,12 +704,67 @@ await listen<string>("menu-action", ({ payload }) => {
   void menuAction(payload);
 });
 
-let startupDoc: OpenedDocument | null = null;
+let restored: RecoverySnapshot | undefined;
+let startupRecoveries: RecoverySnapshot[] = [];
 try {
-  startupDoc = await invoke<OpenedDocument | null>("startup_document");
+  const available = await invoke<{
+    snapshots: RecoverySnapshot[];
+    errors: string[];
+  }>("list_recovery");
+  startupRecoveries = available.snapshots;
+  for (const error of available.errors) {
+    await showError("Could not read a recovery backup", error);
+  }
+  for (const snapshot of startupRecoveries) {
+    if (restored) break;
+    const choice = await message(
+      `Unsaved writing for "${snapshot.name}" was recovered from ${new Date(snapshot.updatedAt).toLocaleString()}.${
+        snapshot.path ? `\nOriginal: ${snapshot.path}` : ""
+      }\n\nRestore opens an unsaved source copy; the original file is not changed.`,
+      {
+        title: "Recover unsaved writing",
+        kind: "warning",
+        buttons: { yes: "Restore", no: "Discard", cancel: "Later" },
+      },
+    );
+    if (choice === "Restore") {
+      restored = snapshot;
+    } else if (choice === "Discard") {
+      await recovery.discard(snapshot.id);
+    }
+  }
 } catch (error) {
-  await showError("Open failed", error);
+  await showError("Recovery failed", error);
+} finally {
+  // A deferred snapshot (or a failed prompt) must not stay claimed by us.
+  for (const snapshot of startupRecoveries) {
+    if (snapshot.id === restored?.id) continue;
+    await invoke("release_recovery", { id: snapshot.id }).catch((error: unknown) =>
+      showError("Could not release a recovery backup", error),
+    );
+  }
+}
+
+let startupDoc: OpenedDocument | null = null;
+if (!restored) {
+  try {
+    startupDoc = await invoke<OpenedDocument | null>("startup_document");
+  } catch (error) {
+    await showError("Open failed", error);
+  }
 }
 await replaceDocument(
-  startupDoc ?? { path: null, name: "Untitled", content: "" },
+  restored ?? startupDoc ?? { path: null, name: "Untitled", content: "" },
+  restored,
 );
+initialized = true;
+
+// Bounded reconciliation also captures edits before Milkdown's callback fires.
+let recoveryEditorRevision = -1;
+window.setInterval(() => {
+  if (!documentReady) return;
+  const revision = handle?.revision ?? 0;
+  if (rawMode || revision !== recoveryEditorRevision) syncLiveContent();
+  recoveryEditorRevision = revision;
+  recovery.schedule(recoverySnapshot(), documentSession.state.dirty);
+}, 2000);
