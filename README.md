@@ -66,6 +66,8 @@ has changed or removed it, you can resolve the conflict rather than silently
 replacing the on-disk version. When an unchanged document is updated externally,
 marky reloads it the next time the window gains focus. Documents with unsaved
 edits prompt before reloading.
+If you edit the document, reopen it, or switch editing modes while a reload is
+pending, marky abandons that reload rather than replacing your current buffer.
 
 Closing a document with unsaved changes offers **Save**, **Close without saving**,
 or **Keep editing**. Read-only files are rejected on save. Atomic replacement is

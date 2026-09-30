@@ -467,26 +467,37 @@ appWindow.onFocusChanged(async ({ payload: focused }) => {
   // Raw mode edits the source textarea, which the rich-editor buffers below
   // cannot adopt; its saves are still checked by the save guard.
   if (!focused || rawMode) return;
-  const path = documentSession.path;
+  const session = documentSession;
+  const editor = handle;
+  const path = session.path;
   if (!path) return;
+  const isCurrent = () =>
+    !rawMode &&
+    documentSession === session &&
+    session.path === path &&
+    handle === editor;
   const status = await checkDocument(path).catch((error: unknown) => {
     void showError("Could not check the file", error);
     return null;
   });
-  if (!status || status.status !== "changed") return;
+  if (!status || status.status !== "changed" || !isCurrent()) return;
   // One prompt per outside version, not per focus change.
   if (acknowledgedExternalChanges.get(path) === status.token) return;
   acknowledgedExternalChanges.set(path, status.token);
   await handleExternalChange({
-    isDirty: () => documentSession.state.dirty,
-    adopt: async () => {
-      // The mode or the document may have changed while checking.
-      if (rawMode || documentSession.path !== path) return;
-      await replaceDocument(await loadDocument(path));
-    },
+    isCurrent,
+    revision: () => session.state.revision + (editor?.revision ?? 0),
+    // Milkdown's markdown callback is debounced; include edits still in its view.
+    isDirty: () =>
+      session.state.dirty ||
+      (editor !== null &&
+        combineFrontmatter(frontContent, editor.getMarkdown()) !==
+          session.state.content),
+    load: () => loadDocument(path),
+    replace: replaceDocument,
     confirmReload: () =>
       ask(
-        `"${documentSession.name}" changed on disk. Reload it and discard your unsaved edits?`,
+        `"${session.name}" changed on disk. Reload it and discard your unsaved edits?`,
         {
           title: "File changed on disk",
           kind: "warning",

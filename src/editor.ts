@@ -59,6 +59,8 @@ import { codeBlockTabKeymap } from "./code-block-tab";
 export interface EditorHandle {
   /** Current document serialized back to markdown. */
   getMarkdown(): string;
+  /** Synchronous edit revision, including changes not yet serialized. */
+  readonly revision: number;
   /** Toggle focus mode: dim every block except the one holding the caret. */
   setFocusMode(on: boolean): void;
   focus(): void;
@@ -148,6 +150,17 @@ export async function createEditor(
   onError: (title: string, error: unknown) => void,
 ): Promise<EditorHandle> {
   let focusEnabled = false;
+  let revision = 0;
+  const revisionPlugin = new Plugin({
+    key: new PluginKey("MARKY_EDIT_REVISION"),
+    state: {
+      init: () => null,
+      apply: (tr) => {
+        if (tr.docChanged) revision++;
+        return null;
+      },
+    },
+  });
 
   const editor = Editor.make()
     .config((ctx) => {
@@ -166,6 +179,7 @@ export async function createEditor(
       });
       ctx.update(prosePluginsCtx, (plugins) => [
         ...plugins,
+        revisionPlugin,
         taskListTogglePlugin,
         alertDecorationPlugin,
         findPlugin,
@@ -470,6 +484,9 @@ export async function createEditor(
   };
 
   return {
+    get revision() {
+      return revision;
+    },
     getMarkdown: () =>
       restoreFootnoteRefs(restoreAlertMarkers(editor.action(getMarkdown()))),
     insert,

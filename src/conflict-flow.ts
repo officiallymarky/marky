@@ -3,7 +3,7 @@
  * (overwrite, adopt the on-disk version, or keep editing) and the focus-time
  * check (adopt silently when nothing is unsaved, ask when there is).
  */
-import type { ConflictKind } from "./document";
+import type { ConflictKind, OpenedDocument } from "./document";
 
 /** `alternate` adopts the on-disk version (or offers Save As when it is gone). */
 export type ConflictChoice = "overwrite" | "alternate" | "keep-editing";
@@ -48,9 +48,12 @@ export async function resolveSaveConflict(
 }
 
 export interface ExternalChangeDependencies {
+  isCurrent(): boolean;
+  revision(): number;
   isDirty(): boolean;
-  /** Loads the on-disk version, replacing the buffer. */
-  adopt(): Promise<void>;
+  /** Reads the on-disk version without replacing the buffer. */
+  load(): Promise<OpenedDocument>;
+  replace(document: OpenedDocument): Promise<void>;
   /** Asked only when the buffer has unsaved edits to lose. */
   confirmReload(): Promise<boolean>;
   showError(title: string, error: unknown): Promise<void>;
@@ -61,8 +64,14 @@ export async function handleExternalChange(
   dependencies: ExternalChangeDependencies,
 ): Promise<void> {
   try {
+    if (!dependencies.isCurrent()) return;
+    const revision = dependencies.revision();
     if (dependencies.isDirty() && !(await dependencies.confirmReload())) return;
-    await dependencies.adopt();
+    if (!dependencies.isCurrent() || dependencies.revision() !== revision) return;
+    const document = await dependencies.load();
+    // A prompt or read must never authorize replacing edits made meanwhile.
+    if (!dependencies.isCurrent() || dependencies.revision() !== revision) return;
+    await dependencies.replace(document);
   } catch (error) {
     await dependencies.showError("Reload failed", error);
   }
