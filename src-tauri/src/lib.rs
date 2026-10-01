@@ -15,6 +15,7 @@ use tauri::Emitter;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_dialog::DialogExt;
 
+mod native_menu;
 mod recovery;
 
 const APP_TITLE: &str = "marky";
@@ -645,6 +646,7 @@ pub fn run() {
             check_document,
             save_document,
             set_window_title,
+            native_menu::set_menu_palette,
             write_recovery,
             list_recovery,
             discard_recovery,

@@ -438,6 +438,19 @@ function applyTheme(theme: ThemeDefinition) {
   document.documentElement.dataset.theme = theme.id;
   localStorage.setItem("theme", theme.id);
   document.dispatchEvent(new CustomEvent(THEME_CHANGED_EVENT));
+  const styles = getComputedStyle(document.documentElement);
+  const color = (name: string) =>
+    Number.parseInt(styles.getPropertyValue(name).trim().slice(1), 16);
+  void invoke("set_menu_palette", {
+    palette: {
+      bg: color("--bg"),
+      fg: color("--fg"),
+      muted: color("--muted"),
+      border: color("--border"),
+      accent: color("--accent"),
+      hover: color("--code-bg"),
+    },
+  }).catch((error: unknown) => showError("Menu appearance", error));
 }
 
 function cycleTheme() {

@@ -118,8 +118,9 @@ marky notes.md
 
 The **File**, **Edit**, **Insert**, **View**, and **Appearance** menus provide
 document actions, search, content insertion, display settings, and theme and
-font choices. The floating toolbar provides formatting and insertion controls
-without leaving the editor.
+font choices. On Linux, the menu bar and its dropdowns follow the selected editor
+theme, with thin-bordered dropdowns and no added shadow or glow. The floating
+toolbar provides formatting and insertion controls without leaving the editor.
 
 ### Keyboard shortcuts
 
