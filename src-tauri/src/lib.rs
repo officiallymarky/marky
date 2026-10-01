@@ -745,14 +745,35 @@ pub fn run() {
             let focus_item =
                 MenuItemBuilder::with_id("focus", "Focus Mode (F8)").build(app)?;
             let theme_item =
-                MenuItemBuilder::with_id("theme", "Dark Theme (F9)").build(app)?;
+                MenuItemBuilder::with_id("theme", "Next Theme (F9)").build(app)?;
+            let theme_light_item =
+                MenuItemBuilder::with_id("theme-light", "Light").build(app)?;
+            let theme_sepia_item =
+                MenuItemBuilder::with_id("theme-sepia", "Sepia").build(app)?;
+            let theme_solarized_item =
+                MenuItemBuilder::with_id("theme-solarized", "Solarized Light").build(app)?;
+            let theme_dark_item =
+                MenuItemBuilder::with_id("theme-dark", "Dark").build(app)?;
+            let theme_nord_item =
+                MenuItemBuilder::with_id("theme-nord", "Nord").build(app)?;
+            let theme_dracula_item =
+                MenuItemBuilder::with_id("theme-dracula", "Dracula").build(app)?;
+            let theme_menu = SubmenuBuilder::new(app, "Theme")
+                .item(&theme_item)
+                .separator()
+                .item(&theme_light_item)
+                .item(&theme_sepia_item)
+                .item(&theme_solarized_item)
+                .item(&theme_dark_item)
+                .item(&theme_nord_item)
+                .item(&theme_dracula_item)
+                .build()?;
             let raw_item =
                 MenuItemBuilder::with_id("raw", "Raw Mode (Ctrl+/)").build(app)?;
             let spell_item =
                 MenuItemBuilder::with_id("spell", "Spell & Grammar Check (F7)").build(app)?;
             let view = SubmenuBuilder::new(app, "View")
                 .item(&focus_item)
-                .item(&theme_item)
                 .separator()
                 .item(&raw_item)
                 .item(&spell_item)
@@ -792,7 +813,7 @@ pub fn run() {
                 .build()?;
 
             let menu = MenuBuilder::new(app)
-                .items(&[&file, &edit, &insert, &view])
+                .items(&[&file, &edit, &view, &theme_menu, &insert])
                 .build()?;
             app.set_menu(menu)?;
             Ok(())

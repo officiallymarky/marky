@@ -42,6 +42,13 @@ import { openTableDialog } from "./table-dialog";
 import { createSearchPanel } from "./search";
 import { readSpellEnabled, writeSpellEnabled } from "./harper";
 import {
+  THEME_CHANGED_EVENT,
+  THEMES,
+  nextTheme,
+  resolveTheme,
+  type ThemeDefinition,
+} from "./theme";
+import {
   createRecoveryJournal,
   type RecoverySnapshot,
   type RecoveryWrite,
@@ -410,13 +417,23 @@ function toggleFocusMode() {
   statusFocus.hidden = !on;
 }
 
-function applyTheme(dark: boolean) {
-  document.documentElement.classList.toggle("dark", dark);
-  localStorage.setItem("theme", dark ? "dark" : "light");
+let currentTheme: ThemeDefinition;
+
+/**
+ * Applies a theme to the document and persists it. The `dark` class stays a
+ * separate signal (mermaid and dark-only styles depend on it), while
+ * `data-theme` selects the palette. Downstream listeners re-render.
+ */
+function applyTheme(theme: ThemeDefinition) {
+  currentTheme = theme;
+  document.documentElement.classList.toggle("dark", theme.dark);
+  document.documentElement.dataset.theme = theme.id;
+  localStorage.setItem("theme", theme.id);
+  document.dispatchEvent(new CustomEvent(THEME_CHANGED_EVENT));
 }
 
-function toggleTheme() {
-  applyTheme(!document.documentElement.classList.contains("dark"));
+function cycleTheme() {
+  applyTheme(nextTheme(currentTheme.id));
 }
 
 /**
@@ -430,11 +447,11 @@ function toggleSpellCheck() {
 }
 
 // Persisted theme wins; first run follows the OS preference and locks it in.
-const storedTheme = localStorage.getItem("theme");
 applyTheme(
-  storedTheme
-    ? storedTheme === "dark"
-    : window.matchMedia("(prefers-color-scheme: dark)").matches,
+  resolveTheme(
+    localStorage.getItem("theme"),
+    window.matchMedia("(prefers-color-scheme: dark)").matches,
+  ),
 );
 
 /**
@@ -466,7 +483,7 @@ window.addEventListener("keydown", (event) => {
     return;
   }
   if (event.key === "F9") {
-    toggleTheme();
+    cycleTheme();
     return;
   }
   if (!(event.ctrlKey || event.metaKey)) return;
@@ -684,7 +701,7 @@ async function menuAction(action: string): Promise<void> {
     case "spell":
       return void toggleSpellCheck();
     case "theme":
-      return void toggleTheme();
+      return void cycleTheme();
     case "undo":
       handle?.undo();
       return;
@@ -698,6 +715,10 @@ async function menuAction(action: string): Promise<void> {
       document.execCommand(action === "select-all" ? "selectAll" : action);
       return;
   }
+  const themeItem = action.startsWith("theme-")
+    ? THEMES.find((theme) => theme.id === action.slice("theme-".length))
+    : undefined;
+  if (themeItem) applyTheme(themeItem);
 }
 
 await listen<string>("menu-action", ({ payload }) => {

@@ -1,4 +1,5 @@
 import { Plugin } from "@milkdown/kit/prose/state";
+import { THEME_CHANGED_EVENT } from "./theme";
 import type { Node as ProseNode } from "@milkdown/kit/prose/model";
 import type { ViewMutationRecord } from "@milkdown/kit/prose/view";
 import { $prose } from "@milkdown/kit/utils";
@@ -16,6 +17,7 @@ let nextMermaidId = 0;
  * code blocks.
  */
 class MermaidBlockView {
+  private themeListener = () => this.scheduleRender();
   dom: HTMLElement;
   contentDOM: HTMLElement;
 
@@ -47,6 +49,7 @@ class MermaidBlockView {
 
     this.dom.append(pre, this.diagramEl, this.errorEl);
     this.resizeObserver.observe(this.diagramEl);
+    document.addEventListener(THEME_CHANGED_EVENT, this.themeListener);
     this.scheduleRender();
   }
 
@@ -79,8 +82,9 @@ class MermaidBlockView {
   }
 
   destroy(): void {
-    if (this.renderTimer) clearTimeout(this.renderTimer);
+    clearTimeout(this.renderTimer);
     this.resizeObserver.disconnect();
+    document.removeEventListener(THEME_CHANGED_EVENT, this.themeListener);
   }
 
   /**

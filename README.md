@@ -20,8 +20,9 @@ Built with [Tauri 2](https://tauri.app),
   GitHub-style alerts, and footnote references and definitions.
 - **Source editing** — switch between the rich editor and raw Markdown, including
   the document's front matter.
-- **Focus mode and themes** — dim surrounding blocks while writing and choose a
-  light or dark theme. The initial theme follows your system preference.
+- **Focus mode and themes** — dim surrounding blocks while writing and pick a
+  theme: Light, Sepia, Solarized Light, Dark, Nord, or Dracula (own Theme menu;
+  the initial theme follows your system preference).
 - **Document status** — word and character counts, the current file path, and an
   unsaved-change indicator.
 
@@ -131,7 +132,7 @@ formatting and insertion controls without leaving the editor.
 | `Tab` | Insert two spaces in a code block, indent a list item, or move to the next table cell |
 | `F7` | Toggle spelling and grammar checking |
 | `F8` | Toggle focus mode |
-| `F9` | Toggle light and dark themes |
+| `F9` | Cycle themes (Theme menu picks a specific one) |
 
 ## Development
 
