@@ -24,8 +24,26 @@
   --lint-spelling: #cf222e;
   --lint-grammar: #0969da;
   --find-match-bg: rgb(255 213 0 / 0.35);
+  --font-prose: system-ui, "Segoe UI", "Noto Sans", sans-serif;
+  --font-size-prose: 16px;
   --find-current-bg: rgb(255 160 0 / 0.55);
   --find-current-ring: rgb(255 160 0 / 0.8);
+}
+
+html[data-font="serif"] {
+  --font-prose: "Noto Serif", Georgia, "Times New Roman", serif;
+}
+
+html[data-font="mono"] {
+  --font-prose: "JetBrains Mono", "Fira Code", "Noto Sans Mono", monospace;
+}
+
+html[data-font-size="small"] {
+  --font-size-prose: 15px;
+}
+
+html[data-font-size="large"] {
+  --font-size-prose: 18px;
 }
 
 html.dark {
@@ -252,7 +270,8 @@ body.has-frontmatter #editor {
 
 .milkdown .ProseMirror {
   outline: none;
-  font-size: 16px;
+  font-family: var(--font-prose);
+  font-size: var(--font-size-prose);
   line-height: 1.75;
   min-height: 60vh;
 }

@@ -758,15 +758,40 @@ pub fn run() {
                 MenuItemBuilder::with_id("theme-nord", "Nord").build(app)?;
             let theme_dracula_item =
                 MenuItemBuilder::with_id("theme-dracula", "Dracula").build(app)?;
-            let theme_menu = SubmenuBuilder::new(app, "Theme")
-                .item(&theme_item)
+            let font_system_item =
+                MenuItemBuilder::with_id("font-system", "System Sans").build(app)?;
+            let font_serif_item =
+                MenuItemBuilder::with_id("font-serif", "Serif").build(app)?;
+            let font_mono_item =
+                MenuItemBuilder::with_id("font-mono", "Monospace").build(app)?;
+            let font_size_small_item =
+                MenuItemBuilder::with_id("font-size-small", "Small").build(app)?;
+            let font_size_medium_item =
+                MenuItemBuilder::with_id("font-size-medium", "Medium").build(app)?;
+            let font_size_large_item =
+                MenuItemBuilder::with_id("font-size-large", "Large").build(app)?;
+            let font_menu = SubmenuBuilder::new(app, "Font")
+                .item(&font_system_item)
+                .item(&font_serif_item)
+                .item(&font_mono_item)
                 .separator()
+                .item(&font_size_small_item)
+                .item(&font_size_medium_item)
+                .item(&font_size_large_item)
+                .build()?;
+            let theme_menu = SubmenuBuilder::new(app, "Theme")
                 .item(&theme_light_item)
                 .item(&theme_sepia_item)
                 .item(&theme_solarized_item)
                 .item(&theme_dark_item)
                 .item(&theme_nord_item)
                 .item(&theme_dracula_item)
+                .build()?;
+            let appearance_menu = SubmenuBuilder::new(app, "Appearance")
+                .item(&theme_item)
+                .separator()
+                .item(&theme_menu)
+                .item(&font_menu)
                 .build()?;
             let raw_item =
                 MenuItemBuilder::with_id("raw", "Raw Mode (Ctrl+/)").build(app)?;
@@ -813,7 +838,7 @@ pub fn run() {
                 .build()?;
 
             let menu = MenuBuilder::new(app)
-                .items(&[&file, &edit, &view, &theme_menu, &insert])
+                .items(&[&file, &edit, &insert, &view, &appearance_menu])
                 .build()?;
             app.set_menu(menu)?;
             Ok(())

@@ -42,6 +42,14 @@ import { openTableDialog } from "./table-dialog";
 import { createSearchPanel } from "./search";
 import { readSpellEnabled, writeSpellEnabled } from "./harper";
 import {
+  FONT_FAMILIES,
+  FONT_SIZES,
+  resolveFont,
+  resolveFontSize,
+  type FontId,
+  type FontSizeId,
+} from "./font";
+import {
   THEME_CHANGED_EVENT,
   THEMES,
   nextTheme,
@@ -454,6 +462,22 @@ applyTheme(
   ),
 );
 
+// Persisted writing font wins; unknown or missing values keep the defaults.
+applyFont(resolveFont(localStorage.getItem("font")));
+applyFontSize(resolveFontSize(localStorage.getItem("font-size")));
+
+/** Writing-font family for the rich editor surface (`data-font`). */
+function applyFont(id: FontId) {
+  document.documentElement.dataset.font = id;
+  localStorage.setItem("font", id);
+}
+
+/** Writing-font size for the rich editor surface (`data-font-size`). */
+function applyFontSize(id: FontSizeId) {
+  document.documentElement.dataset.fontSize = id;
+  localStorage.setItem("font-size", id);
+}
+
 /**
  * The find/replace panel works over whichever surface is active; the rich
  * editor's handle is recreated on document switches, so re-apply the query.
@@ -719,6 +743,15 @@ async function menuAction(action: string): Promise<void> {
     ? THEMES.find((theme) => theme.id === action.slice("theme-".length))
     : undefined;
   if (themeItem) applyTheme(themeItem);
+  if (action.startsWith("font-size-")) {
+    const size = FONT_SIZES.find((option) => option.id === action.slice(10));
+    if (size) applyFontSize(size.id);
+    return;
+  }
+  if (action.startsWith("font-")) {
+    const family = FONT_FAMILIES.find((option) => option.id === action.slice(5));
+    if (family) applyFont(family.id);
+  }
 }
 
 await listen<string>("menu-action", ({ payload }) => {

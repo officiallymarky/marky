@@ -21,8 +21,11 @@ Built with [Tauri 2](https://tauri.app),
 - **Source editing** — switch between the rich editor and raw Markdown, including
   the document's front matter.
 - **Focus mode and themes** — dim surrounding blocks while writing and pick a
-  theme: Light, Sepia, Solarized Light, Dark, Nord, or Dracula (own Theme menu;
-  the initial theme follows your system preference).
+  theme: Light, Sepia, Solarized Light, Dark, Nord, or Dracula.
+- **Writing font** — pick the rich editor's font family (System Sans, Serif,
+  or Monospace) and size (Small/Medium/Large). Raw mode keeps its fixed
+  monospace source view. Theme and font choices persist and live in the
+  Appearance menu (themes also cycle with F9).
 - **Document status** — word and character counts, the current file path, and an
   unsaved-change indicator.
 
@@ -113,9 +116,10 @@ line:
 marky notes.md
 ```
 
-The **File**, **Edit**, **Insert**, and **View** menus provide document actions,
-search, content insertion, and display settings. The floating toolbar provides
-formatting and insertion controls without leaving the editor.
+The **File**, **Edit**, **Insert**, **View**, and **Appearance** menus provide
+document actions, search, content insertion, display settings, and theme and
+font choices. The floating toolbar provides formatting and insertion controls
+without leaving the editor.
 
 ### Keyboard shortcuts
 
@@ -132,7 +136,7 @@ formatting and insertion controls without leaving the editor.
 | `Tab` | Insert two spaces in a code block, indent a list item, or move to the next table cell |
 | `F7` | Toggle spelling and grammar checking |
 | `F8` | Toggle focus mode |
-| `F9` | Cycle themes (Theme menu picks a specific one) |
+| `F9` | Cycle themes (Appearance menu picks a specific one) |
 
 ## Development
 
