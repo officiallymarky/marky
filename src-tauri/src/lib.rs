@@ -814,6 +814,8 @@ pub fn run() {
                 MenuItemBuilder::with_id("insert-code-block", "Code Block").build(app)?;
             let footnote_item =
                 MenuItemBuilder::with_id("insert-footnote", "Footnote").build(app)?;
+            let toc_item =
+                MenuItemBuilder::with_id("insert-toc", "Table of Contents").build(app)?;
             let alert_note_item =
                 MenuItemBuilder::with_id("insert-alert-note", "Note").build(app)?;
             let alert_tip_item =
@@ -837,6 +839,7 @@ pub fn run() {
                 .item(&code_block_item)
                 .item(&alert)
                 .item(&footnote_item)
+                .item(&toc_item)
                 .build()?;
 
             let menu = MenuBuilder::new(app)

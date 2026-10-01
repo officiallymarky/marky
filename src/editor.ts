@@ -55,6 +55,7 @@ import { nextFootnoteIndex, restoreFootnoteRefs } from "./footnote";
 import { createFindApi, findPlugin, type FindHandle } from "./find";
 import { createSpellCheck, spellPlugin, type SpellCheckHandle } from "./harper";
 import { codeBlockTabKeymap } from "./code-block-tab";
+import { tocInputRule, tocNode, tocPlugin, tocRemark } from "./toc";
 
 export interface EditorHandle {
   /** Current document serialized back to markdown. */
@@ -73,6 +74,7 @@ export interface EditorHandle {
     codeBlock(): void;
     alert(kind: AlertKind): void;
     footnote(): void;
+    toc(): void;
   };
   /** Find/replace over the document; a null query clears highlights. */
   search: FindHandle;
@@ -194,6 +196,10 @@ export async function createEditor(
     .use(trailing)
     .use(mermaidPlugin)
     .use(linkInputRule)
+    .use(tocRemark)
+    .use(tocNode)
+    .use(tocInputRule)
+    .use(tocPlugin)
     .use(codeBlockTabKeymap);
 
   for (const plugin of prism) editor.use(plugin);
@@ -351,6 +357,7 @@ export async function createEditor(
       horizontalRule: () => insert.horizontalRule(),
       alert: (kind) => insert.alert(kind),
       footnote: () => insert.footnote(),
+      toc: () => insert.toc(),
     },
   });
 
@@ -481,6 +488,21 @@ export async function createEditor(
     codeBlock: () => insertCodeBlock(),
     alert: insertAlert,
     footnote: insertFootnote,
+    toc: () => {
+      leaveFootnoteDefinition();
+      relocateForBlockInsert(view.state.schema.nodes.toc, ["blockquote"]);
+      const { state } = view;
+      const { from } = state.selection;
+      const tr = state.tr.replaceSelectionWith(state.schema.nodes.toc.create());
+      const next = Selection.findFrom(tr.doc.resolve(from), 1, true);
+      if (next) {
+        tr.setSelection(next);
+      } else {
+        tr.insert(tr.doc.content.size, state.schema.nodes.paragraph.create());
+        tr.setSelection(TextSelection.create(tr.doc, tr.doc.content.size - 1));
+      }
+      view.dispatch(tr.scrollIntoView());
+    },
   };
 
   return {

@@ -17,7 +17,7 @@ Built with [Tauri 2](https://tauri.app),
 - **Floating toolbar** — formatting controls and insert actions available while
   the editor is focused, with clickable checkboxes for task lists.
 - **Structured content** — insert tables, horizontal rules, fenced code blocks,
-  GitHub-style alerts, and footnote references and definitions.
+  GitHub-style alerts, footnotes, and live tables of contents.
 - **Source editing** — switch between the rich editor and raw Markdown, including
   the document's front matter.
 - **Focus mode and themes** — dim surrounding blocks while writing and pick a
@@ -121,6 +121,18 @@ document actions, search, content insertion, display settings, and theme and
 font choices. On Linux, the menu bar and its dropdowns follow the selected editor
 theme, with thin-bordered dropdowns and no added shadow or glow. The floating
 toolbar provides formatting and insertion controls without leaving the editor.
+
+### Table of contents
+
+Choose **Insert → Table of Contents** in the menu bar or floating toolbar, or
+write `[TOC]` or `[[TOC]]` in a top-level paragraph of its own (separate it from
+other prose with blank lines). Both markers render a nested outline of the document's
+headings and update as headings change. Click an entry, or focus it and press
+Enter, to jump to that heading.
+
+Saved Markdown keeps the original marker rather than a generated list. Markers
+inside code blocks, inline code, lists, blockquotes, or prose stay literal; use
+`\[TOC]` to display a standalone marker without generating an outline.
 
 ### Keyboard shortcuts
 

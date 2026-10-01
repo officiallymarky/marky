@@ -729,6 +729,8 @@ async function menuAction(action: string): Promise<void> {
       return void insertFromMenu((i) => i.alert("caution"));
     case "insert-footnote":
       return void insertFromMenu((i) => i.footnote());
+    case "insert-toc":
+      return void insertFromMenu((i) => i.toc());
     case "close":
       return appWindow.close();
     case "focus":

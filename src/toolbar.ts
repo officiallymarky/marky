@@ -21,6 +21,7 @@ export interface ToolbarActions {
   horizontalRule(): void;
   alert(kind: AlertKind): void;
   footnote(): void;
+  toc(): void;
 }
 
 const SVG_ICONS: Record<string, string> = {
@@ -44,6 +45,8 @@ const SVG_ICONS: Record<string, string> = {
     '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.6 14.4 13.4H1.6Z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M8 6.3v3.6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="8" cy="11.6" r=".95" fill="currentColor"/></svg>',
   footnote:
     '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.4v11.2M3.1 5.1l9.8 5.8M12.9 5.1l-9.8 5.8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>',
+  toc:
+    '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3h10M3 6.3h7M3 9.7h10M3 13h7" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>',
 };
 
 /** Only one editor toolbar exists at a time; popover internals close via this. */
@@ -332,6 +335,11 @@ export function createSelectionToolbar(options: {
       label: "Footnote",
       action: actions.footnote,
       icon: SVG_ICONS.footnote,
+    }),
+    buildMenuItem({
+      label: "Table of Contents",
+      action: actions.toc,
+      icon: SVG_ICONS.toc,
     }),
   );
 

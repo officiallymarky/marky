@@ -367,6 +367,72 @@ body.has-frontmatter #editor {
   font-family: "JetBrains Mono", "Fira Code", "Noto Sans Mono", monospace;
 }
 
+/* --- Live table of contents --- */
+
+.ProseMirror .md-toc {
+  margin: 0 0 1.5em;
+  padding: 16px 20px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--code-bg);
+  color: var(--fg);
+}
+
+.md-toc-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+  font-size: 0.9em;
+  font-weight: 600;
+}
+
+.md-toc-marker {
+  color: var(--muted);
+  font-family: monospace;
+  font-size: 0.8em;
+  font-weight: 400;
+}
+
+.ProseMirror .md-toc ul {
+  margin: 0;
+  padding-left: 1.2em;
+  list-style: none;
+}
+
+.ProseMirror .md-toc > ul {
+  padding-left: 0;
+}
+
+.ProseMirror .md-toc li {
+  margin: 0;
+  line-height: 1.8;
+}
+
+.md-toc a {
+  color: var(--fg);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.md-toc a:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.md-toc a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+.ProseMirror .md-toc-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9em;
+}
+
 /* --- Typography --- */
 
 .ProseMirror h1 {
