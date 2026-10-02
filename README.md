@@ -20,6 +20,10 @@ Built with [Tauri 2](https://tauri.app),
   GitHub-style alerts, footnotes, and live tables of contents.
 - **Source editing** — switch between the rich editor and raw Markdown, including
   the document's front matter.
+- **Undo across modes** — one document history for rich text, source edits and
+  front matter. Switching modes keeps undo/redo; saving keeps history, while
+  opening, reloading or restoring a document starts fresh. History retains the
+  latest 100 edit groups.
 - **Focus mode and themes** — dim surrounding blocks while writing and pick a
   theme: Light, Sepia, Solarized Light, Dark, Nord, Dracula, Catppuccin, or
   Tokyo Night.
@@ -45,7 +49,7 @@ with error hints for invalid syntax. See the
 Find and replace includes live match highlighting, a match counter,
 previous/next navigation, and case-sensitive search. It works in both the rich
 editor and source mode. In the rich editor, Replace All is a single undoable
-operation; source-mode replacements use the text area's native undo history.
+operation; replacements in both surfaces feed the shared document history.
 
 [Harper](https://writewithharper.com) provides on-device spelling and grammar
 checking. Select an underlined issue to review suggestions, ignore it, or add a
@@ -147,6 +151,8 @@ inside code blocks, inline code, lists, blockquotes, or prose stay literal; use
 | `Ctrl+H` | Open find and replace with replacement controls visible |
 | `Enter` / `Shift+Enter` | Next / previous match while searching |
 | `Ctrl+/` | Toggle Markdown source mode |
+| `Ctrl+Z` | Undo a document edit, including edits made in the other mode |
+| `Ctrl+Y` / `Ctrl+Shift+Z` | Redo a document edit |
 | `Tab` | Insert two spaces in a code block, indent a list item, or move to the next table cell |
 | `F7` | Toggle spelling and grammar checking |
 | `F8` | Toggle focus mode |
@@ -190,6 +196,7 @@ release binary is at `src-tauri/target/release/marky`.
 | `src/` | TypeScript editor, toolbar, search, proofreading, and document workflows |
 | `src-tauri/` | Rust application shell, native menus and dialogs, and file access |
 | `src/modal-dialog.ts` | Shared modal reuse, submission/cancellation, and focus restoration |
+| `src/document-history.ts` | Bounded undo/redo timeline shared by rich text, source and front matter |
 | `src/recovery.ts` | Debounced recovery snapshots, serialized writes, and save/discard cleanup |
 | `src-tauri/src/recovery.rs` | Private, atomic snapshot storage and multi-instance recovery locks |
 | `tests/` | Frontend behavioral tests |

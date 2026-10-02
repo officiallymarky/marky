@@ -1,8 +1,8 @@
 /**
  * The find/replace panel: a fixed overlay shared by both editing surfaces.
- * The rich editor is driven through its `FindHandle`; raw mode gets a
- * textarea-backed surface that keeps the textarea's native undo by replacing
- * selections with `execCommand("insertText")`.
+ * The rich editor is driven through its `FindHandle`; raw mode replaces
+ * selections with `execCommand("insertText")`, whose input events feed the
+ * document's shared undo timeline.
  */
 import { findTextMatches, type FindHandle, type FindQuery, type StringMatch } from "./find";
 

@@ -4,8 +4,11 @@ import {
   rootCtx,
   defaultValueCtx,
   prosePluginsCtx,
+  parserCtx,
+  serializerCtx,
 } from "@milkdown/kit/core";
 import {
+  EditorState,
   NodeSelection,
   Plugin,
   PluginKey,
@@ -18,11 +21,16 @@ import type { Node as ProsemirrorNode, NodeType } from "@milkdown/kit/prose/mode
 import { commonmark } from "@milkdown/kit/preset/commonmark";
 import { gfm } from "@milkdown/kit/preset/gfm";
 import { listener, listenerCtx } from "@milkdown/kit/plugin/listener";
-import { history } from "@milkdown/kit/plugin/history";
+// Retain ProseMirror's grouping rules, but route undo/redo through the shared
+// document timeline rather than a rich-only keymap.
+import {
+  historyProviderConfig,
+  historyProviderPlugin,
+} from "@milkdown/kit/plugin/history";
+import { closeHistory, undoDepth } from "@milkdown/kit/prose/history";
 import { clipboard } from "@milkdown/kit/plugin/clipboard";
 import { trailing } from "@milkdown/kit/plugin/trailing";
 import { getMarkdown, callCommand } from "@milkdown/kit/utils";
-import { undoCommand, redoCommand } from "@milkdown/kit/plugin/history";
 import { mermaidPlugin } from "./mermaid";
 import { prism, prismConfig } from "@milkdown/plugin-prism";
 import { codeLanguageAliases, codeLanguages } from "./highlight";
@@ -65,8 +73,11 @@ export interface EditorHandle {
   /** Toggle focus mode: dim every block except the one holding the caret. */
   setFocusMode(on: boolean): void;
   focus(): void;
-  undo(): void;
-  redo(): void;
+  /** Immutable rich state retained by the document's shared undo timeline. */
+  snapshot(): EditorState;
+  /** Restore a rich snapshot, or parse source without recording a new edit. */
+  restore(snapshot: EditorState | string): void;
+  breakHistoryGroup(): void;
   /** Insert actions shared by the toolbar menu and the native Insert menu. */
   insert: {
     table(rows: number, cols: number): void;
@@ -150,9 +161,11 @@ export async function createEditor(
   initial: string,
   onUpdate: (markdown: string) => void,
   onError: (title: string, error: unknown) => void,
+  onEdit: (before: EditorState, after: EditorState, join: boolean) => void,
 ): Promise<EditorHandle> {
   let focusEnabled = false;
   let revision = 0;
+  let restoring = false;
   const revisionPlugin = new Plugin({
     key: new PluginKey("MARKY_EDIT_REVISION"),
     state: {
@@ -163,13 +176,26 @@ export async function createEditor(
       },
     },
   });
+  const editHistoryPlugin = new Plugin({
+    key: new PluginKey("MARKY_DOCUMENT_HISTORY"),
+    view: () => ({
+      update(view, before) {
+        if (restoring || view.state.doc.eq(before.doc)) return;
+        onEdit(before, view.state, undoDepth(before) === undoDepth(view.state));
+      },
+    }),
+  });
 
   const editor = Editor.make()
     .config((ctx) => {
       ctx.set(rootCtx, container);
       ctx.set(defaultValueCtx, initial);
-      ctx.get(listenerCtx).markdownUpdated((_ctx, markdown) => {
-        onUpdate(restoreFootnoteRefs(restoreAlertMarkers(markdown)));
+      ctx.get(listenerCtx).updated((current, doc) => {
+        // A queued callback from before a mode switch/undo cannot adopt old text.
+        if (!current.get(editorViewCtx).state.doc.eq(doc)) return;
+        onUpdate(
+          restoreFootnoteRefs(restoreAlertMarkers(current.get(serializerCtx)(doc))),
+        );
       });
       ctx.update(prismConfig.key, (opts) => {
         opts.configureRefractor = (refractor) => {
@@ -182,6 +208,7 @@ export async function createEditor(
       ctx.update(prosePluginsCtx, (plugins) => [
         ...plugins,
         revisionPlugin,
+        editHistoryPlugin,
         taskListTogglePlugin,
         alertDecorationPlugin,
         findPlugin,
@@ -191,7 +218,8 @@ export async function createEditor(
     .use(commonmark)
     .use(gfm)
     .use(listener)
-    .use(history)
+    .use(historyProviderConfig)
+    .use(historyProviderPlugin)
     .use(clipboard)
     .use(trailing)
     .use(mermaidPlugin)
@@ -505,8 +533,30 @@ export async function createEditor(
       updateFocusedBlock();
     },
     focus: () => view.focus(),
-    undo: () => editor.action(callCommand(undoCommand.key)),
-    redo: () => editor.action(callCommand(redoCommand.key)),
+    snapshot: () => view.state,
+    restore(snapshot) {
+      let state =
+        typeof snapshot === "string"
+          ? EditorState.create({
+              schema: view.state.schema,
+              plugins: view.state.plugins,
+              doc: editor.action((ctx) => ctx.get(parserCtx)(snapshot)),
+            })
+          : snapshot;
+      restoring = true;
+      try {
+        if (typeof snapshot === "string") {
+          // Run trailing-node normalization inside the restore, not on the
+          // next focus transaction (which would create a spurious undo step).
+          state = state.applyTransaction(state.tr.setMeta("addToHistory", false)).state;
+        }
+        revision++;
+        view.updateState(state);
+      } finally {
+        restoring = false;
+      }
+    },
+    breakHistoryGroup: () => view.dispatch(closeHistory(view.state.tr)),
     destroy: async () => {
       document.removeEventListener("selectionchange", updateFocusedBlock);
       spelling.destroy();

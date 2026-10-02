@@ -9,6 +9,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
 import { createEditor, type EditorHandle } from "./editor";
+import type { EditorState } from "@milkdown/kit/prose/state";
+import { DocumentHistory } from "./document-history";
 import {
   checkDocument,
   loadDocument,
@@ -92,9 +94,26 @@ let documentSession: DocumentSession = {
 };
 const saveCurrentDocument = createSaveHandler(() => documentSession, saveDocument);
 let rawMode = false;
+let modeRevision = 0;
 let frontContent: string | null = null;
 let lastTitle = "";
 let titleUpdates: Promise<void> = Promise.resolve();
+type TextSelectionSnapshot = {
+  start: number;
+  end: number;
+  direction: "forward" | "backward" | "none";
+};
+type HistorySnapshot =
+  | { kind: "raw"; content: string; selection: TextSelectionSnapshot }
+  | {
+      kind: "rich";
+      state: EditorState;
+      front: string | null;
+      frontSelection?: TextSelectionSnapshot;
+    };
+const editHistory = new DocumentHistory<HistorySnapshot>();
+// Source matching the hidden rich state; unchanged switches need no reparse.
+let richSource: string | null = null;
 const recovery = createRecoveryJournal({
   write: (snapshot) => invoke("write_recovery", { snapshot }),
   remove: (id) => invoke("discard_recovery", { id }),
@@ -175,9 +194,78 @@ function updateFrontPanel() {
 }
 
 function onUpdate(markdown: string) {
+  if (rawMode || !documentReady) return;
   documentSession.state.update(combineFrontmatter(frontContent, markdown));
   refreshChrome();
   if (searchPanel.isOpen()) searchPanel.refresh();
+}
+
+function textSelection(editor: HTMLTextAreaElement): TextSelectionSnapshot {
+  return {
+    start: editor.selectionStart,
+    end: editor.selectionEnd,
+    direction: editor.selectionDirection,
+  };
+}
+
+function historySnapshot(): HistorySnapshot {
+  if (rawMode) {
+    return { kind: "raw", content: rawEditor.value, selection: textSelection(rawEditor) };
+  }
+  return {
+    kind: "rich",
+    state: handle!.snapshot(),
+    front: frontContent,
+    ...(document.activeElement === frontEditor
+      ? { frontSelection: textSelection(frontEditor) }
+      : {}),
+  };
+}
+
+function historyBoundary(): void {
+  editHistory.boundary();
+  handle?.breakHistoryGroup();
+}
+
+function restoreHistory(redo = false): void {
+  if (!documentReady || !handle) return;
+  const snapshot = redo ? editHistory.redo() : editHistory.undo();
+  if (!snapshot) return;
+  if (snapshot.kind === "raw") {
+    const split = splitFrontmatter(snapshot.content);
+    frontContent = split.front;
+    handle.restore(split.body);
+    richSource = snapshot.content;
+  } else {
+    frontContent = snapshot.front;
+    handle.restore(snapshot.state);
+    richSource = null;
+  }
+  updateFrontPanel();
+  if (rawMode) {
+    frontWrap.hidden = true;
+    rawEditor.value =
+      snapshot.kind === "raw"
+        ? snapshot.content
+        : combineFrontmatter(frontContent, handle.getMarkdown());
+    richSource = rawEditor.value;
+    const selection =
+      snapshot.kind === "raw"
+        ? snapshot.selection
+        : { start: rawEditor.value.length, end: rawEditor.value.length, direction: "none" as const };
+    rawEditor.focus();
+    rawEditor.setSelectionRange(selection.start, selection.end, selection.direction);
+  } else if (snapshot.kind === "rich" && snapshot.frontSelection && frontContent !== null) {
+    frontEditor.focus();
+    const { start, end, direction } = snapshot.frontSelection;
+    frontEditor.setSelectionRange(start, end, direction);
+  } else {
+    handle.focus();
+  }
+  // State restoration bypasses Milkdown's debounced listener.
+  syncLiveContent();
+  refreshChrome();
+  if (searchPanel.isOpen()) searchPanel.retarget();
 }
 
 async function replaceDocument(
@@ -195,6 +283,8 @@ async function replaceDocument(
   };
   const session = documentSession;
   session.state.load(doc.content);
+  editHistory.clear();
+  richSource = null;
   await handle?.destroy();
   handle = null;
   rawMode = recovered !== undefined;
@@ -205,21 +295,31 @@ async function replaceDocument(
   const split = splitFrontmatter(doc.content);
   frontContent = split.front;
   updateFrontPanel();
+  handle = await createEditor(
+    editorRoot,
+    split.body,
+    (markdown) => {
+      if (documentSession === session) onUpdate(markdown);
+    },
+    showError,
+    (before, after, join) => {
+      if (!documentReady || rawMode || documentSession !== session) return;
+      editHistory.record(
+        { kind: "rich", state: before, front: frontContent },
+        { kind: "rich", state: after, front: frontContent },
+        join,
+      );
+    },
+  );
   if (recovered) {
     // Recovery opens exact source bytes as an unsaved copy, never the original.
     frontWrap.hidden = true;
     rawEditor.value = doc.content;
+    richSource = doc.content;
+    handle.spelling.setEnabled(false);
     session.state.restore(doc.content);
     rawEditor.focus();
   } else {
-    handle = await createEditor(
-      editorRoot,
-      split.body,
-      (markdown) => {
-        if (documentSession === session) onUpdate(markdown);
-      },
-      showError,
-    );
     handle.focus();
     // Canonical Markdown on a normal open is the saved baseline.
     session.state.load(combineFrontmatter(frontContent, handle.getMarkdown()));
@@ -279,8 +379,12 @@ async function doFrontMatter() {
       await showError("Front Matter", new Error(unsupported));
       return;
     }
+    if (block === frontContent) return;
+    const before = historySnapshot();
     frontContent = block;
     updateFrontPanel();
+    editHistory.record(before, historySnapshot());
+    historyBoundary();
     documentSession.state.update(
       combineFrontmatter(frontContent, handle?.getMarkdown() ?? ""),
     );
@@ -289,8 +393,11 @@ async function doFrontMatter() {
   }
   const fields = await openFrontMatterWizard({ date: todayIsoDate() });
   if (!fields) return;
+  const before = historySnapshot();
   frontContent = buildFrontMatterBlock(fields);
   updateFrontPanel();
+  editHistory.record(before, historySnapshot());
+  historyBoundary();
   documentSession.state.update(
     combineFrontmatter(frontContent, handle?.getMarkdown() ?? ""),
   );
@@ -384,33 +491,36 @@ async function doSave(saveAs = false): Promise<boolean> {
   });
 }
 
-async function setRawMode(on: boolean) {
-  if (on === rawMode) return;
+function setRawMode(on: boolean) {
+  if (!documentReady || !handle || on === rawMode) return;
   syncLiveContent();
-  rawMode = on;
+  historyBoundary();
+  modeRevision++;
 
   if (on) {
     // Focus mode is block-based; meaningless over a plain textarea.
     if (editorRoot.classList.contains("focus-mode")) toggleFocusMode();
-    // Raw mode edits the whole document, frontmatter included.
-    await handle?.destroy();
-    handle = null;
+    rawMode = true;
+    handle.spelling.setEnabled(false);
     editorRoot.hidden = true;
     frontWrap.hidden = true;
     rawEditor.value = documentSession.state.content;
+    richSource = rawEditor.value;
     rawEditor.hidden = false;
     rawEditor.focus();
   } else {
     const split = splitFrontmatter(rawEditor.value);
+    if (rawEditor.value !== richSource) handle.restore(split.body);
     frontContent = split.front;
+    rawMode = false;
     rawEditor.hidden = true;
     editorRoot.hidden = false;
     updateFrontPanel();
-    handle = await createEditor(editorRoot, split.body, onUpdate, showError);
+    handle.spelling.setEnabled(readSpellEnabled());
     handle.focus();
-    // Normalize the baseline the same way a freshly opened document does.
-    const baseline = combineFrontmatter(frontContent, handle.getMarkdown());
-    documentSession.state.update(baseline);
+    documentSession.state.update(
+      combineFrontmatter(frontContent, handle.getMarkdown()),
+    );
   }
 
   statusRaw.classList.toggle("active", on);
@@ -420,6 +530,7 @@ async function setRawMode(on: boolean) {
 }
 
 function toggleFocusMode() {
+  if (rawMode) return;
   const on = !editorRoot.classList.contains("focus-mode");
   handle?.setFocusMode(on);
   statusFocus.hidden = !on;
@@ -458,13 +569,13 @@ function cycleTheme() {
 }
 
 /**
- * The preference lives in storage so it also applies while raw mode has no
- * editor, and so a recreated editor picks it up.
+ * The preference persists across documents; source mode pauses proofreading
+ * without changing that preference.
  */
 function toggleSpellCheck() {
   const on = !readSpellEnabled();
   writeSpellEnabled(on);
-  handle?.spelling.setEnabled(on);
+  handle?.spelling.setEnabled(on && !rawMode);
 }
 
 // Persisted theme wins; first run follows the OS preference and locks it in.
@@ -509,6 +620,35 @@ const searchPanel = createSearchPanel({
   showError: (error) => void showError("Find & Replace", error),
 });
 
+function isDocumentTarget(target: EventTarget | null): boolean {
+  return (
+    target === rawEditor ||
+    target === frontEditor ||
+    (target instanceof Element && !!target.closest(".ProseMirror"))
+  );
+}
+
+editorRoot.addEventListener("focusin", historyBoundary);
+window.addEventListener("beforeinput", (event) => {
+  if (!initialized || !isDocumentTarget(event.target)) return;
+  const input = event as InputEvent;
+  if (input.inputType !== "historyUndo" && input.inputType !== "historyRedo") return;
+  event.preventDefault();
+  event.stopPropagation();
+  restoreHistory(input.inputType === "historyRedo");
+}, true);
+
+// Capture before editor keymaps/native textarea undo; dialog and Find fields
+// retain their own local history.
+window.addEventListener("keydown", (event) => {
+  if (!initialized || event.isComposing || !(event.ctrlKey || event.metaKey) || event.altKey) return;
+  const key = event.key.toLowerCase();
+  if (key !== "z" && key !== "y") return;
+  if (!isDocumentTarget(event.target)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  restoreHistory(key === "y" || event.shiftKey);
+}, true);
 window.addEventListener("keydown", (event) => {
   if (!initialized) return;
   if (event.key === "F7") {
@@ -560,25 +700,67 @@ statusRaw.addEventListener("click", () => {
   void setRawMode(!rawMode);
 });
 
-rawEditor.addEventListener("input", () => {
-  documentSession.state.update(rawEditor.value);
-  refreshChrome();
-  if (searchPanel.isOpen()) searchPanel.refresh();
-});
+for (const editor of [rawEditor, frontEditor]) {
+  let before: HistorySnapshot | null = null;
+  let previousType = "";
+  let previousTime = 0;
+  let previousSelection: TextSelectionSnapshot | null = null;
+  let composing = false;
 
-frontEditor.addEventListener("input", () => {
-  const value = frontEditor.value;
-  frontContent = value.trim()
-    ? value.endsWith("\n")
-      ? value
-      : `${value}\n`
-    : null;
-  documentSession.state.update(
-    combineFrontmatter(frontContent, handle?.getMarkdown() ?? ""),
-  );
-  autoGrow(frontEditor);
-  refreshChrome();
-});
+  editor.addEventListener("focus", historyBoundary);
+  editor.addEventListener("compositionstart", () => {
+    historyBoundary();
+    composing = true;
+  });
+  editor.addEventListener("compositionend", () => {
+    composing = false;
+    historyBoundary();
+  });
+  editor.addEventListener("beforeinput", () => {
+    if (documentReady) before = historySnapshot();
+  });
+  editor.addEventListener("input", (event) => {
+    if (!documentReady || !handle) return;
+    const prior = before ?? historySnapshot();
+    before = null;
+    // execCommand replacements emit input without beforeinput on Chromium.
+    if (prior.kind === "raw") prior.content = documentSession.state.content;
+    const type = (event as InputEvent).inputType;
+    const selection = textSelection(editor);
+    const priorSelection = prior.kind === "raw" ? prior.selection : prior.frontSelection;
+    const join =
+      composing ||
+      (["insertText", "deleteContentBackward", "deleteContentForward"].includes(type) &&
+        type === previousType &&
+        event.timeStamp - previousTime < 500 &&
+        priorSelection?.start === previousSelection?.start &&
+        priorSelection?.end === previousSelection?.end);
+    if (editor === rawEditor) {
+      documentSession.state.update(rawEditor.value);
+    } else {
+      const value = frontEditor.value;
+      frontContent = value.trim()
+        ? value.endsWith("\n") ? value : `${value}\n`
+        : null;
+      documentSession.state.update(
+        combineFrontmatter(frontContent, handle.getMarkdown()),
+      );
+      autoGrow(frontEditor);
+    }
+    const after = historySnapshot();
+    if (
+      (prior.kind === "raw" && after.kind === "raw" && prior.content !== after.content) ||
+      (prior.kind === "rich" && after.kind === "rich" && prior.front !== after.front)
+    ) {
+      editHistory.record(prior, after, join);
+    }
+    previousType = type;
+    previousTime = event.timeStamp;
+    previousSelection = selection;
+    refreshChrome();
+    if (searchPanel.isOpen()) searchPanel.refresh();
+  });
+}
 
 async function destroyWindowSafely(): Promise<void> {
   try {
@@ -638,10 +820,12 @@ appWindow.onFocusChanged(async ({ payload: focused }) => {
   if (!initialized || !focused || rawMode) return;
   const session = documentSession;
   const editor = handle;
+  const observedModeRevision = modeRevision;
   const path = session.path;
   if (!path) return;
   const isCurrent = () =>
     !rawMode &&
+    modeRevision === observedModeRevision &&
     documentSession === session &&
     session.path === path &&
     handle === editor;
@@ -682,7 +866,7 @@ appWindow.onFocusChanged(async ({ payload: focused }) => {
 function insertFromMenu(
   run: (insert: NonNullable<EditorHandle["insert"]>) => void,
 ): void {
-  if (!handle) return;
+  if (!handle || rawMode) return;
   handle.focus();
   run(handle.insert);
 }
@@ -704,7 +888,7 @@ async function menuAction(action: string): Promise<void> {
       return searchPanel.open(false);
     case "insert-table": {
       const dims = await openTableDialog();
-      if (dims && handle) {
+      if (dims && handle && !rawMode) {
         handle.focus();
         handle.insert.table(dims.rows, dims.cols);
       }
@@ -739,10 +923,10 @@ async function menuAction(action: string): Promise<void> {
     case "theme":
       return void cycleTheme();
     case "undo":
-      handle?.undo();
+      restoreHistory();
       return;
     case "redo":
-      handle?.redo();
+      restoreHistory(true);
       return;
     case "cut":
     case "copy":
