@@ -127,6 +127,19 @@ font choices. On Linux, the menu bar and its dropdowns follow the selected edito
 theme, with thin-bordered dropdowns and no added shadow or glow. The floating
 toolbar provides formatting and insertion controls without leaving the editor.
 
+### Recent files
+
+**File → Recent Files** lists the ten most recently opened or saved documents,
+newest first, with full paths to distinguish matching filenames. The list
+persists in the application's private data directory; relative paths and
+symlink aliases are deduplicated by canonical path.
+
+Reopening uses the same unsaved-change confirmation as Open. Cancelled dialogs
+and failed opens do not change the list, and a missing file reports an error
+without replacing the current document. Untitled documents and unsaved recovery
+copies are not listed until saved. **Clear Recent Files** clears only the list,
+not the documents.
+
 ### Table of contents
 
 Choose **Insert → Table of Contents** in the menu bar or floating toolbar, or

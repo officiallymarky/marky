@@ -92,7 +92,14 @@ let documentSession: DocumentSession = {
   state: new DocumentState(),
   recoveryId: crypto.randomUUID(),
 };
-const saveCurrentDocument = createSaveHandler(() => documentSession, saveDocument);
+const saveCurrentDocument = createSaveHandler(
+  () => documentSession,
+  async (path, content, force) => {
+    const outcome = await saveDocument(path, content, force);
+    if (outcome.path && !outcome.conflict) await rememberDocument(outcome.path);
+    return outcome;
+  },
+);
 let rawMode = false;
 let modeRevision = 0;
 let frontContent: string | null = null;
@@ -325,6 +332,7 @@ async function replaceDocument(
     session.state.load(combineFrontmatter(frontContent, handle.getMarkdown()));
   }
   documentReady = true;
+  if (!recovered && doc.path) await rememberDocument(doc.path);
   refreshChrome();
   if (searchPanel.isOpen()) searchPanel.retarget();
   if (recovered) await checkpointRecovery();
@@ -332,6 +340,15 @@ async function replaceDocument(
     await recovery.discard(previous.recoveryId);
   } catch (error) {
     await showError("Recovery cleanup failed", error);
+  }
+}
+
+async function rememberDocument(path: string): Promise<void> {
+  try {
+    await invoke("remember_document", { path });
+  } catch (error) {
+    // A recent-list failure must not turn a successful open or save into a failure.
+    await showError("Could not update recent files", error);
   }
 }
 
@@ -351,10 +368,10 @@ async function doNew() {
   await replaceDocument({ path: null, name: "Untitled", content: "" });
 }
 
-async function doOpen() {
+async function doOpen(path?: string) {
   if (!(await confirmDiscard())) return;
   await runOpenFlow({
-    open: openDocumentDialog,
+    open: path ? () => loadDocument(path) : openDocumentDialog,
     replace: replaceDocument,
     showError,
   });
@@ -873,11 +890,16 @@ function insertFromMenu(
 
 async function menuAction(action: string): Promise<void> {
   if (!initialized) return;
+  if (action.startsWith("recent:")) return doOpen(action.slice("recent:".length));
   switch (action) {
     case "new":
       return doNew();
     case "open":
       return doOpen();
+    case "recent-clear":
+      return void await invoke("clear_recent_documents").catch((error: unknown) =>
+        showError("Could not clear recent files", error),
+      );
     case "save":
       return void doSave();
     case "save-as":
@@ -994,6 +1016,10 @@ try {
     );
   }
 }
+
+await invoke("refresh_recent_documents").catch((error: unknown) =>
+  showError("Could not load recent files", error),
+);
 
 let startupDoc: OpenedDocument | null = null;
 if (!restored) {

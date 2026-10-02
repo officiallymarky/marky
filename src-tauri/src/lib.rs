@@ -17,6 +17,7 @@ use tauri_plugin_dialog::DialogExt;
 
 mod native_menu;
 mod recovery;
+mod recent;
 
 const APP_TITLE: &str = "marky";
 static NEXT_TEMP_FILE_ID: AtomicU64 = AtomicU64::new(0);
@@ -645,6 +646,9 @@ pub fn run() {
             load_document,
             check_document,
             save_document,
+            recent::refresh_recent_documents,
+            recent::remember_document,
+            recent::clear_recent_documents,
             set_window_title,
             native_menu::set_menu_palette,
             write_recovery,
@@ -708,6 +712,19 @@ pub fn run() {
 
             let new_item = MenuItemBuilder::with_id("new", "New").build(app)?;
             let open_item = MenuItemBuilder::with_id("open", "Open…").build(app)?;
+            let recent_menu = SubmenuBuilder::new(app, "Recent Files")
+                .item(
+                    &MenuItemBuilder::with_id("recent-empty", "No recent files")
+                        .enabled(false)
+                        .build(app)?,
+                )
+                .build()?;
+            let recent_store =
+                recent::RecentStore::new(app.path().app_data_dir()?.join("recent-files"))?;
+            app.manage(recent::RecentDocuments {
+                store: recent_store,
+                menu: recent_menu.clone(),
+            });
             let save_item = MenuItemBuilder::with_id("save", "Save").build(app)?;
             let save_as_item = MenuItemBuilder::with_id("save-as", "Save As…").build(app)?;
             let close_item = MenuItemBuilder::with_id("close", "Close Window").build(app)?;
@@ -717,6 +734,7 @@ pub fn run() {
             let file = SubmenuBuilder::new(app, "File")
                 .item(&new_item)
                 .item(&open_item)
+                .item(&recent_menu)
                 .item(&save_item)
                 .item(&save_as_item)
                 .item(&front_matter_item)
