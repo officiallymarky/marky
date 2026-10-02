@@ -17,6 +17,8 @@ test("THEMES lists every built-in palette with its dark-family flag", () => {
       ["dark", true],
       ["nord", true],
       ["dracula", true],
+      ["catppuccin", true],
+      ["tokyo-night", true],
     ],
   );
 });
@@ -37,7 +39,16 @@ test("resolveTheme falls back to the OS preference for absent or unknown values"
 });
 
 test("nextTheme cycles through every theme and wraps around", () => {
-  const order = ["light", "sepia", "solarized", "dark", "nord", "dracula"];
+  const order = [
+    "light",
+    "sepia",
+    "solarized",
+    "dark",
+    "nord",
+    "dracula",
+    "catppuccin",
+    "tokyo-night",
+  ];
   let id = "light";
   const visited = [id];
   for (let i = 0; i < order.length * 2 - 1; i++) {
@@ -46,7 +57,8 @@ test("nextTheme cycles through every theme and wraps around", () => {
   }
   assert.deepEqual(visited, order);
   // One full cycle lands back on light.
-  assert.equal(nextTheme("dracula").id, "light");
+  assert.equal(nextTheme("tokyo-night").id, "light");
+  assert.equal(nextTheme("dracula").id, "catppuccin");
   assert.equal(nextTheme("light").id, "sepia");
 });
 
@@ -55,5 +67,6 @@ test("themeById returns the definition for a valid id and throws otherwise", () 
   assert.equal(themeById("solarized").dark, false);
   assert.equal(themeById("nord").label, "Nord");
   assert.equal(themeById("sepia").dark, false);
-  assert.throws(() => themeById("neon"), /Unknown theme/);
+  assert.equal(themeById("catppuccin").label, "Catppuccin");
+  assert.equal(themeById("tokyo-night").dark, true);
 });

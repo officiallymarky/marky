@@ -760,6 +760,10 @@ pub fn run() {
                 MenuItemBuilder::with_id("theme-nord", "Nord").build(app)?;
             let theme_dracula_item =
                 MenuItemBuilder::with_id("theme-dracula", "Dracula").build(app)?;
+            let theme_catppuccin_item =
+                MenuItemBuilder::with_id("theme-catppuccin", "Catppuccin").build(app)?;
+            let theme_tokyo_night_item =
+                MenuItemBuilder::with_id("theme-tokyo-night", "Tokyo Night").build(app)?;
             let font_system_item =
                 MenuItemBuilder::with_id("font-system", "System Sans").build(app)?;
             let font_serif_item =
@@ -788,6 +792,8 @@ pub fn run() {
                 .item(&theme_dark_item)
                 .item(&theme_nord_item)
                 .item(&theme_dracula_item)
+                .item(&theme_catppuccin_item)
+                .item(&theme_tokyo_night_item)
                 .build()?;
             let appearance_menu = SubmenuBuilder::new(app, "Appearance")
                 .item(&theme_item)

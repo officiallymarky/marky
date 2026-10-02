@@ -21,7 +21,8 @@ Built with [Tauri 2](https://tauri.app),
 - **Source editing** — switch between the rich editor and raw Markdown, including
   the document's front matter.
 - **Focus mode and themes** — dim surrounding blocks while writing and pick a
-  theme: Light, Sepia, Solarized Light, Dark, Nord, or Dracula.
+  theme: Light, Sepia, Solarized Light, Dark, Nord, Dracula, Catppuccin, or
+  Tokyo Night.
 - **Writing font** — pick the rich editor's font family (System Sans, Serif,
   or Monospace) and size (Small/Medium/Large). Raw mode keeps its fixed
   monospace source view. Theme and font choices persist and live in the

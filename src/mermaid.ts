@@ -132,9 +132,16 @@ class MermaidBlockView {
       });
       await mermaid.parse(text);
       // Mermaid sanitizes its SVG output (DOMPurify, securityLevel "strict").
+      // Pass this view's element as the render container: with no container,
+      // mermaid appends a temporary render div to <body>, which is a flex
+      // column — the extra in-flow child redistributes the layout for the
+      // frames the async render takes, visibly jolting the page (the
+      // theme-switch statusbar flicker). A container keeps the temp element
+      // out of the body's flow.
       const { svg } = await mermaid.render(
         `marky-mermaid-${nextMermaidId++}`,
         text,
+        this.diagramEl,
       );
       if (seq !== this.renderSeq) return; // a newer render superseded us
       this.diagramEl.innerHTML = svg;

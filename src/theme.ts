@@ -5,7 +5,9 @@ export type ThemeId =
   | "sepia"
   | "solarized"
   | "nord"
-  | "dracula";
+  | "dracula"
+  | "catppuccin"
+  | "tokyo-night";
 
 export interface ThemeDefinition {
   id: ThemeId;
@@ -21,6 +23,8 @@ export const THEMES: readonly ThemeDefinition[] = [
   { id: "dark", label: "Dark", dark: true },
   { id: "nord", label: "Nord", dark: true },
   { id: "dracula", label: "Dracula", dark: true },
+  { id: "catppuccin", label: "Catppuccin", dark: true },
+  { id: "tokyo-night", label: "Tokyo Night", dark: true },
 ];
 
 /** Fired on `document` whenever the theme changes (e.g. mermaid re-renders). */

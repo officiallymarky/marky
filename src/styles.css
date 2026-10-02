@@ -196,6 +196,66 @@ html[data-theme="nord"] {
   --find-current-ring: rgb(235 203 139 / 0.7);
 }
 
+html[data-theme="catppuccin"] {
+  color-scheme: dark;
+  --bg: #1e1e2e;
+  --fg: #cdd6f4;
+  --muted: #a6adc8;
+  --border: #45475a;
+  --accent: #cba6f7;
+  --code-bg: #181825;
+  --tok-comment: #6c7086;
+  --tok-keyword: #cba6f7;
+  --tok-string: #a6e3a1;
+  --tok-number: #fab387;
+  --tok-function: #89b4fa;
+  --tok-tag: #f38ba8;
+  --tok-property: #94e2d5;
+  --tok-plain: #cdd6f4;
+  --alert-note: #89b4fa;
+  --alert-tip: #a6e3a1;
+  --alert-important: #cba6f7;
+  --alert-warning: #f9e2af;
+  --alert-caution: #f38ba8;
+  --danger: #f38ba8;
+  --on-accent: #1e1e2e;
+  --lint-spelling: #f38ba8;
+  --lint-grammar: #89b4fa;
+  --find-match-bg: rgb(249 226 175 / 0.25);
+  --find-current-bg: rgb(250 179 135 / 0.45);
+  --find-current-ring: rgb(250 179 135 / 0.7);
+}
+
+html[data-theme="tokyo-night"] {
+  color-scheme: dark;
+  --bg: #1a1b26;
+  --fg: #c0caf5;
+  --muted: #565f89;
+  --border: #292e42;
+  --accent: #7aa2f7;
+  --code-bg: #16161e;
+  --tok-comment: #565f89;
+  --tok-keyword: #bb9af7;
+  --tok-string: #9ece6a;
+  --tok-number: #ff9e64;
+  --tok-function: #7aa2f7;
+  --tok-tag: #7dcfff;
+  --tok-property: #c0caf5;
+  --tok-plain: #c0caf5;
+  --alert-note: #7aa2f7;
+  --alert-tip: #9ece6a;
+  --alert-important: #bb9af7;
+  --alert-warning: #e0af68;
+  --alert-caution: #f7768e;
+  --danger: #f7768e;
+  --on-accent: #1a1b26;
+  --lint-spelling: #f7768e;
+  --lint-grammar: #7aa2f7;
+  --find-match-bg: rgb(224 175 104 / 0.25);
+  --find-current-bg: rgb(224 175 104 / 0.45);
+  --find-current-ring: rgb(224 175 104 / 0.7);
+}
+
 * {
   box-sizing: border-box;
 }
