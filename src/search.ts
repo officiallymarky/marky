@@ -4,7 +4,7 @@
  * selections with `execCommand("insertText")`, whose input events feed the
  * document's shared undo timeline.
  */
-import { findTextMatches, type FindHandle, type FindQuery, type StringMatch } from "./find";
+import { findTextMatches, type FindHandle, type FindQuery, type StringMatch } from "./find.ts";
 
 export interface SearchPanelDeps {
   rawEditor: HTMLTextAreaElement;
@@ -45,12 +45,21 @@ interface Surface
 function createRawSurface(editor: HTMLTextAreaElement): Surface {
   let query: FindQuery | null = null;
   let matches: StringMatch[] = [];
-  let current = -1;
+  /**
+   * Start offset of the current match, the raw counterpart of the rich
+   * surface's tracked `currentFrom` (null when there is none). Match indexes
+   * are re-derived from it after every scan, so an edit that deletes or
+   * shifts the tracked match never leaves a stale numeric index behind.
+   */
+  let currentFrom: number | null = null;
+  /** Text at the last scan, for mapping the tracked position through edits. */
+  let scannedText = editor.value;
 
   const scan = (): void => {
     matches = query?.needle
       ? findTextMatches(editor.value, query.needle, query.caseSensitive)
       : [];
+    scannedText = editor.value;
   };
 
   /** Selects a match, scrolling to it, without stealing focus from the panel. */
@@ -70,6 +79,52 @@ function createRawSurface(editor: HTMLTextAreaElement): Surface {
     return matches.length ? 0 : -1;
   };
 
+  /** The match containing `pos`, else the nearest one before it, else none. */
+  const locateAt = (pos: number): number => {
+    let lastBefore = -1;
+    for (let i = 0; i < matches.length; i++) {
+      const m = matches[i];
+      if (m.start <= pos && pos <= m.end) return i;
+      if (m.start < pos) lastBefore = i;
+      if (m.start > pos) break;
+    }
+    return lastBefore;
+  };
+
+  /** Index of the tracked current match (−1 when there is none). */
+  const locate = (): number =>
+    currentFrom === null || !matches.length ? -1 : Math.max(0, locateAt(currentFrom));
+
+  /** Maps the tracked position through the changed text without moving focus. */
+  const rescan = (): void => {
+    const text = editor.value;
+    if (currentFrom !== null && text !== scannedText) {
+      // The caret marks the edit's new end. Constrain the diff around it so
+      // repeated text cannot make an edit near the start look like one at EOF.
+      const caret = editor.selectionStart;
+      const delta = text.length - scannedText.length;
+      const startLimit = Math.max(0, caret - Math.max(0, delta));
+      let start = 0;
+      while (
+        start < startLimit && start < scannedText.length && start < text.length &&
+        scannedText[start] === text[start]
+      ) start += 1;
+      let oldEnd = scannedText.length;
+      let newEnd = text.length;
+      while (
+        oldEnd > start && newEnd > Math.max(start, caret) &&
+        scannedText[oldEnd - 1] === text[newEnd - 1]
+      ) {
+        oldEnd -= 1;
+        newEnd -= 1;
+      }
+      if (currentFrom >= oldEnd) currentFrom += newEnd - oldEnd;
+      else if (currentFrom >= start) currentFrom = newEnd;
+    }
+    scan();
+    if (!matches.length) currentFrom = null;
+  };
+
   const swap = (text: string): void => {
     if (!document.execCommand("insertText", false, text)) {
       throw new Error("Raw-mode replacement failed");
@@ -80,59 +135,67 @@ function createRawSurface(editor: HTMLTextAreaElement): Surface {
     setQuery(q) {
       query = q && q.needle ? q : null;
       scan();
-      current = matches.length
-        ? from(editor.selectionStart)
-        : -1;
-      if (current >= 0) select(current);
+      const idx = matches.length ? from(editor.selectionStart) : -1;
+      currentFrom = idx >= 0 ? matches[idx].start : null;
+      if (idx >= 0) select(idx);
     },
     count() {
-      return { total: matches.length, index: current + 1 };
+      return { total: matches.length, index: locate() + 1 };
     },
     next() {
       if (!matches.length) return;
-      current = (current + 1) % matches.length;
-      select(current);
+      const idx = (locate() + 1) % matches.length;
+      currentFrom = matches[idx].start;
+      select(idx);
     },
     prev() {
       if (!matches.length) return;
-      current = current <= 0 ? matches.length - 1 : current - 1;
-      select(current);
+      const cur = locate();
+      const idx = cur <= 0 ? matches.length - 1 : cur - 1;
+      currentFrom = matches[idx].start;
+      select(idx);
     },
     replaceCurrent(text) {
-      if (current < 0) return false;
-      const m = matches[current];
+      const cur = locate();
+      if (cur < 0) return false;
+      const m = matches[cur];
+      const after = m.start + text.length;
       editor.focus();
       editor.setSelectionRange(m.start, m.end);
       swap(text);
-      // Next match: first one starting at/after the inserted text (no wrap,
-      // so a replacement containing the needle is never re-replaced).
-      current = -1;
+      // A synchronous input→refresh may already have rescanned; scanning is
+      // idempotent, so recompute from the live text either way.
+      scan();
+      // Advance past the inserted text without wrapping onto the replacement.
+      currentFrom = null;
       for (let i = 0; i < matches.length; i++) {
-        if (matches[i].start >= m.start + text.length) {
-          current = i;
+        if (matches[i].start >= after) {
+          currentFrom = matches[i].start;
+          select(i);
           break;
         }
       }
-      if (current >= 0) select(current);
       return true;
     },
     replaceAll(text) {
       if (!query?.needle) return 0;
       scan();
-      const count = matches.length;
+      // Snapshot: each swap's input event may rescan `matches` mid-loop, but
+      // descending replacements keep the snapshot's offsets valid.
+      const list = matches;
+      const count = list.length;
       if (!count) return 0;
       editor.focus();
-      // Descending order keeps earlier (smaller) offsets valid.
       for (let i = count - 1; i >= 0; i--) {
-        const m = matches[i];
+        const m = list[i];
         editor.setSelectionRange(m.start, m.end);
         swap(text);
       }
       scan();
-      current = -1;
+      currentFrom = null;
       return count;
     },
-    rescan: scan,
+    rescan,
   };
 }
 

@@ -449,8 +449,7 @@ export async function createEditor(
     leaveFootnoteDefinition();
     leaveCodeBlock();
     const { state } = view;
-    const docText = state.doc.textBetween(0, state.doc.content.size, "\n", "\n");
-    const ref = `[^${nextFootnoteIndex(docText)}]`;
+    const ref = `[^${nextFootnoteIndex(state.doc)}]`;
     const tr = state.tr.replaceSelectionWith(state.schema.text(ref));
     // The definition goes at the very end of the document, caret inside it.
     // A trailing empty paragraph is reused so no blank line is left behind.

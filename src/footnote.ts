@@ -1,11 +1,33 @@
+import type { Node as ProsemirrorNode } from "@milkdown/kit/prose/model";
+
+const LITERAL_FOOTNOTE_REF = /\[\^(\d+)\]/g;
+
 /**
- * Returns the next unused footnote number for the given document text.
- * Footnotes are plain markdown text: `[^1]` refs and `[^1]: text` definitions,
- * so existing refs are found by scanning for the literal `[^n]` pattern.
+ * Returns the smallest free footnote number for the document.
+ *
+ * Identifiers live in two places: parsed `footnote_reference` and
+ * `footnote_definition` nodes carry their label in node attributes (invisible
+ * to text scanning), while footnotes inserted during the current session are
+ * literal `[^n]` text. Both are reserved. Labels are matched verbatim, so a
+ * named label like `[^note]` never blocks a numeric identifier.
  */
-export function nextFootnoteIndex(docText: string): number {
+export function nextFootnoteIndex(doc: ProsemirrorNode): number {
+  const used = new Set<string>();
+  doc.descendants((node) => {
+    if (
+      node.type.name === "footnote_reference" ||
+      node.type.name === "footnote_definition"
+    ) {
+      const label = node.attrs.label;
+      if (typeof label === "string" && label) used.add(label);
+    }
+  });
+  const docText = doc.textBetween(0, doc.content.size, "\n", "\n");
+  for (const match of docText.matchAll(LITERAL_FOOTNOTE_REF)) {
+    used.add(match[1]);
+  }
   let n = 1;
-  while (docText.includes(`[^${n}]`)) n += 1;
+  while (used.has(String(n))) n += 1;
   return n;
 }
 
