@@ -35,22 +35,15 @@ const SVG_ICONS: Record<string, string> = {
     '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4.2 3.1 1.5-.9v5.2" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 11c0-1 .7-1.7 1.6-1.7s1.7.6 1.7 1.4c0 .9-.6 1.4-1.4 2L3.2 14.4h4.1" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 4.25h6M8 11.75h6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>',
   task:
     '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.25" y="2.25" width="11.5" height="11.5" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="m5.5 8.1 1.9 1.9 3.4-3.9" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-  table:
-    '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M1.75 6.25h12.5M1.75 9.75h12.5M6.25 2.75v10.5M10.75 2.75v10.5" fill="none" stroke="currentColor" stroke-width="1.1"/></svg>',
   hr:
     '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8h9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="2.25" cy="8" r="1" fill="currentColor"/><circle cx="13.75" cy="8" r="1" fill="currentColor"/></svg>',
   codeblock:
     '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="m6.4 6.3-1.9 1.7 1.9 1.7M9.6 6.3l1.9 1.7-1.9 1.7" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-  alert:
-    '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.6 14.4 13.4H1.6Z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M8 6.3v3.6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="8" cy="11.6" r=".95" fill="currentColor"/></svg>',
   footnote:
     '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.4v11.2M3.1 5.1l9.8 5.8M12.9 5.1l-9.8 5.8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>',
   toc:
     '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3h10M3 6.3h7M3 9.7h10M3 13h7" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>',
 };
-
-/** Only one editor toolbar exists at a time; popover internals close via this. */
-let active: SelectionToolbar | null = null;
 
 interface SelectionToolbar {
   closeMenus(): void;
@@ -76,7 +69,7 @@ function separator(): HTMLElement {
 
 /**
  * Typora-style floating selection toolbar, fixed at the bottom-center: shows
- * while the editor is focused with a selection or an open popover, and
+ * while the editor is focused or a menu/popover is open, and
  * applies formatting through the editor's commands. Owns its DOM under
  * `document.body`; call `destroy()` with the editor.
  */
@@ -345,14 +338,14 @@ export function createSelectionToolbar(options: {
 
   // --- buttons --------------------------------------------------------------
   const paragraphButton = button("Paragraph ▾", "Block type", "tb-label");
-  const listButton = button(SVG_ICONS.list, "Lists", "tb-icon");
+  const listButton = button(SVG_ICONS.list, "Lists");
   const boldBtn = button("B", "Bold", "tb-b");
   const italicBtn = button("I", "Italic", "tb-i");
   const strikeBtn = button("S", "Strikethrough", "tb-s");
   const codeBtn = button("</>", "Inline code", "tb-code");
-  const linkBtn = button(SVG_ICONS.link, "Link", "tb-icon");
-  const imageBtn = button(SVG_ICONS.image, "Image", "tb-icon");
-  const quoteBtn = button(SVG_ICONS.quote, "Blockquote", "tb-icon");
+  const linkBtn = button(SVG_ICONS.link, "Link");
+  const imageBtn = button(SVG_ICONS.image, "Image");
+  const quoteBtn = button(SVG_ICONS.quote, "Blockquote");
   const insertButton = button("Insert ▾", "Insert", "tb-label");
 
   const simpleActions: Array<[HTMLButtonElement, () => void]> = [
@@ -466,9 +459,9 @@ export function createSelectionToolbar(options: {
       label = "Code Block";
     }
     paragraphButton.textContent = `${label} ▾`;
-    for (const item of paragraphMenu.querySelectorAll<HTMLElement>(".tb-menu-item")) {
+    paragraphMenu.querySelectorAll<HTMLElement>(".tb-menu-item").forEach((item) => {
       item.classList.toggle("active", item.textContent === label);
-    }
+    });
     let inList = false;
     for (let depth = $from.depth; depth > 0; depth -= 1) {
       const name = $from.node(depth).type.name;
@@ -512,8 +505,6 @@ export function createSelectionToolbar(options: {
   document.addEventListener("keydown", onKeyDown, true);
   document.addEventListener("pointerdown", onPointerDown, true);
 
-  active = controls;
-
   return {
     destroy() {
       document.removeEventListener("selectionchange", onSelectionChange);
@@ -522,7 +513,6 @@ export function createSelectionToolbar(options: {
       document.removeEventListener("keydown", onKeyDown, true);
       document.removeEventListener("pointerdown", onPointerDown, true);
       root.remove();
-      if (active === controls) active = null;
     },
   };
 }

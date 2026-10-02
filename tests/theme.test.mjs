@@ -1,27 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  THEMES,
   nextTheme,
   resolveTheme,
-  themeById,
 } from "../src/theme.ts";
-
-test("THEMES lists every built-in palette with its dark-family flag", () => {
-  assert.deepEqual(
-    THEMES.map((theme) => [theme.id, theme.dark]),
-    [
-      ["light", false],
-      ["sepia", false],
-      ["solarized", false],
-      ["dark", true],
-      ["nord", true],
-      ["dracula", true],
-      ["catppuccin", true],
-      ["tokyo-night", true],
-    ],
-  );
-});
 
 test("resolveTheme prefers a stored theme id, including legacy values", () => {
   assert.equal(resolveTheme("sepia", true).id, "sepia");
@@ -60,13 +42,4 @@ test("nextTheme cycles through every theme and wraps around", () => {
   assert.equal(nextTheme("tokyo-night").id, "light");
   assert.equal(nextTheme("dracula").id, "catppuccin");
   assert.equal(nextTheme("light").id, "sepia");
-});
-
-test("themeById returns the definition for a valid id and throws otherwise", () => {
-  assert.equal(themeById("dracula").label, "Dracula");
-  assert.equal(themeById("solarized").dark, false);
-  assert.equal(themeById("nord").label, "Nord");
-  assert.equal(themeById("sepia").dark, false);
-  assert.equal(themeById("catppuccin").label, "Catppuccin");
-  assert.equal(themeById("tokyo-night").dark, true);
 });

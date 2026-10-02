@@ -20,10 +20,9 @@ export interface SearchPanelDeps {
 
 export interface SearchPanel {
   open(withReplace: boolean): void;
-  close(): void;
   isOpen(): boolean;
   /** Re-applies the current query to the active surface. */
-  retarget(force?: boolean): void;
+  retarget(): void;
   /** Refreshes the match count (call after document edits). */
   refresh(): void;
 }
@@ -164,7 +163,6 @@ export function createSearchPanel(deps: SearchPanelDeps): SearchPanel {
   let open = false;
   let replaceVisible = false;
   let query: FindQuery = { needle: "", caseSensitive: false };
-  let surfaceKind: "rich" | "raw" | null = null;
 
   const active = (): Surface | null =>
     deps.surface() === "raw" ? rawSurface : deps.rich();
@@ -193,13 +191,7 @@ export function createSearchPanel(deps: SearchPanelDeps): SearchPanel {
     findCount.classList.toggle("no-results", !c.total && query.needle !== "");
   }
 
-  function retarget(force = false): void {
-    const kind = deps.surface();
-    if (!force && kind === surfaceKind) {
-      refresh();
-      return;
-    }
-    surfaceKind = kind;
+  function retarget(): void {
     const s = active();
     if (s) s.setQuery(query.needle ? { ...query } : null);
     refresh();
@@ -259,7 +251,7 @@ export function createSearchPanel(deps: SearchPanelDeps): SearchPanel {
     open = true;
     setReplaceVisible(replaceVisible || withReplace);
     root.hidden = false;
-    retarget(true);
+    retarget();
     findInput.focus();
     findInput.select();
   }
@@ -274,7 +266,6 @@ export function createSearchPanel(deps: SearchPanelDeps): SearchPanel {
 
   return {
     open: openPanel,
-    close,
     isOpen: () => open,
     retarget,
     refresh,

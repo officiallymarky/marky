@@ -144,7 +144,7 @@ export function buildLintInput(doc: ProsemirrorNode): LintInput {
 }
 
 /** Most lints rendered at once; a document beyond this stays usable. */
-export const MAX_LINTS = 500;
+const MAX_LINTS = 500;
 
 /**
  * Turns the usable raw lints into document ranges. A lint is dropped when it
@@ -333,7 +333,6 @@ export interface SpellCheckOptions {
 
 export interface SpellCheckHandle {
   setEnabled(on: boolean): void;
-  isEnabled(): boolean;
   destroy(): void;
 }
 
@@ -594,5 +593,5 @@ export function createSpellCheck(
 
   if (enabled) requestRun(0);
 
-  return { setEnabled, isEnabled: () => enabled, destroy };
+  return { setEnabled, destroy };
 }

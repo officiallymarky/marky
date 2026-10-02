@@ -122,11 +122,6 @@ export function nextMatchFrom(matches: DocMatch[], from: number): number {
   return matches.length ? 0 : -1;
 }
 
-/** First match starting at/after the caret, else the first; -1 if empty. */
-export function pickInitialMatch(matches: DocMatch[], head: number): number {
-  return nextMatchFrom(matches, head);
-}
-
 /** Builds a transaction replacing `m` with `replacement`, keeping text marks. */
 export function replaceMatch(
   state: EditorState,
@@ -282,7 +277,7 @@ export function createFindApi(view: EditorView): FindHandle {
       if (q) {
         const found = computeMatches(view.state.doc, q);
         const idx = found.length
-          ? pickInitialMatch(found, view.state.selection.head)
+          ? nextMatchFrom(found, view.state.selection.head)
           : -1;
         currentFrom = idx >= 0 ? found[idx].from : null;
       }

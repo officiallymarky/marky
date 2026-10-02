@@ -226,7 +226,7 @@ async function replaceDocument(
   }
   documentReady = true;
   refreshChrome();
-  if (searchPanel.isOpen()) searchPanel.retarget(true);
+  if (searchPanel.isOpen()) searchPanel.retarget();
   if (recovered) await checkpointRecovery();
   try {
     await recovery.discard(previous.recoveryId);
@@ -416,7 +416,7 @@ async function setRawMode(on: boolean) {
   statusRaw.classList.toggle("active", on);
   statusRaw.setAttribute("aria-pressed", String(on));
   refreshChrome();
-  if (searchPanel.isOpen()) searchPanel.retarget(true);
+  if (searchPanel.isOpen()) searchPanel.retarget();
 }
 
 function toggleFocusMode() {
@@ -556,7 +556,6 @@ window.addEventListener("keydown", (event) => {
   }
 });
 
-// Intercept window close while dirty: offer Save / Close without saving.
 statusRaw.addEventListener("click", () => {
   void setRawMode(!rawMode);
 });
@@ -581,6 +580,16 @@ frontEditor.addEventListener("input", () => {
   refreshChrome();
 });
 
+async function destroyWindowSafely(): Promise<void> {
+  try {
+    await recovery.discard(documentSession.recoveryId);
+    await appWindow.destroy();
+  } catch (error) {
+    await showError("Could not close safely", error);
+  }
+}
+
+// Intercept window close while dirty: offer Save / Close without saving.
 const closeRequest = createCloseRequestHandler({
   isDirty: () => {
     syncLiveContent();
@@ -597,14 +606,7 @@ const closeRequest = createCloseRequestHandler({
       },
     }),
   save: () => doSave(),
-  destroy: async () => {
-    try {
-      await recovery.discard(documentSession.recoveryId);
-      await appWindow.destroy();
-    } catch (error) {
-      await showError("Could not close safely", error);
-    }
-  },
+  destroy: destroyWindowSafely,
   showError,
 });
 
@@ -616,12 +618,7 @@ appWindow.onCloseRequested(async (event) => {
   syncLiveContent();
   if (!documentSession.state.dirty) {
     event.preventDefault();
-    try {
-      await recovery.discard(documentSession.recoveryId);
-      await appWindow.destroy();
-    } catch (error) {
-      await showError("Could not close safely", error);
-    }
+    await destroyWindowSafely();
     return;
   }
   await closeRequest(event);

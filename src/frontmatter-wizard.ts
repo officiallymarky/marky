@@ -1,4 +1,5 @@
 import { parseScalar } from "./frontmatter.ts";
+import { createModal } from "./modal-dialog.ts";
 
 export interface FrontMatterFields {
   /** Document title; empty string omits the `title` key. */
@@ -225,17 +226,19 @@ export function updateFrontMatterBlock(
 }
 
 interface WizardElements {
-  dialog: HTMLDialogElement;
   title: HTMLInputElement;
   includeDate: HTMLInputElement;
   date: HTMLInputElement;
   tags: HTMLInputElement;
   aliases: HTMLInputElement;
   status: HTMLInputElement;
-  form: HTMLFormElement;
+  primary: HTMLButtonElement;
 }
 
-function buildWizardDom(): WizardElements {
+function buildWizardDom(): {
+  dialog: HTMLDialogElement;
+  fields: WizardElements;
+} {
   const dialog = document.createElement("dialog");
   dialog.id = "frontmatter-wizard";
   dialog.innerHTML = `
@@ -270,27 +273,42 @@ function buildWizardDom(): WizardElements {
       </menu>
     </form>
   `;
-  document.body.append(dialog);
   const form = dialog.querySelector("form")!;
   return {
     dialog,
-    form,
-    title: form.elements.namedItem("title") as HTMLInputElement,
-    includeDate: form.elements.namedItem("includeDate") as HTMLInputElement,
-    date: form.elements.namedItem("date") as HTMLInputElement,
-    tags: form.elements.namedItem("tags") as HTMLInputElement,
-    aliases: form.elements.namedItem("aliases") as HTMLInputElement,
-    status: form.elements.namedItem("status") as HTMLInputElement,
+    fields: {
+      title: form.elements.namedItem("title") as HTMLInputElement,
+      includeDate: form.elements.namedItem("includeDate") as HTMLInputElement,
+      date: form.elements.namedItem("date") as HTMLInputElement,
+      tags: form.elements.namedItem("tags") as HTMLInputElement,
+      aliases: form.elements.namedItem("aliases") as HTMLInputElement,
+      status: form.elements.namedItem("status") as HTMLInputElement,
+      primary: dialog.querySelector<HTMLButtonElement>("button.primary")!,
+    },
   };
 }
 
-// Handlers are attached once, but each open swaps in its own resolver:
-// a creation-time closure would only ever resolve the first request.
-let currentResolve:
-  | ((fields: FrontMatterFields | null) => void)
-  | null = null;
-let activeRequest: Promise<FrontMatterFields | null> | null = null;
-let currentFocusRestore: (() => void) | null = null;
+function splitList(value: string): string[] {
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+const open = createModal<FrontMatterFields, WizardElements>(() => {
+  const { dialog, fields } = buildWizardDom();
+  return {
+    dialog,
+    elements: fields,
+    readValue: () => ({
+      title: fields.title.value,
+      date: fields.includeDate.checked ? fields.date.value : null,
+      tags: splitList(fields.tags.value),
+      aliases: splitList(fields.aliases.value),
+      status: fields.status.value,
+    }),
+  };
+});
 
 /**
  * Shows the front-matter dialog. Resolves the entered fields, or null when
@@ -300,75 +318,13 @@ export function openFrontMatterWizard(
   defaults: Partial<FrontMatterFields> = {},
   options: { submitLabel?: string } = {},
 ): Promise<FrontMatterFields | null> {
-  // A repeat trigger while the dialog is open must not call showModal twice.
-  // A pending request whose dialog is gone (closed without running the
-  // close handler, e.g. a page restore) must heal instead of wedging.
-  const existing = document.getElementById(
-    "frontmatter-wizard",
-  ) as HTMLDialogElement | null;
-  if (activeRequest && existing?.open) return activeRequest;
-  const { promise, resolve } = Promise.withResolvers<FrontMatterFields | null>();
-  activeRequest = promise;
-
-  let wizard = existing;
-  if (!wizard) {
-    const elements = buildWizardDom();
-    wizard = elements.dialog;
-    elements.form.addEventListener("submit", (event) => {
-      event.preventDefault();
-      elements.dialog.close("insert");
-    });
-    wizard
-      .querySelector<HTMLButtonElement>("button[value=cancel]")!
-      .addEventListener("click", () => elements.dialog.close("cancel"));
-    elements.dialog.addEventListener("close", () => {
-      const fields =
-        elements.dialog.returnValue !== "insert"
-          ? null
-          : {
-              title: elements.title.value,
-              date: elements.includeDate.checked ? elements.date.value : null,
-              tags: elements.tags.value
-                .split(",")
-                .map((tag) => tag.trim())
-                .filter(Boolean),
-              aliases: elements.aliases.value
-                .split(",")
-                .map((alias) => alias.trim())
-                .filter(Boolean),
-              status: elements.status.value,
-            };
-      const resolveRequest = currentResolve;
-      const restore = currentFocusRestore;
-      currentResolve = null;
-      currentFocusRestore = null;
-      restore?.();
-      resolveRequest?.(fields);
-    });
-  }
-
-  wizard.querySelector<HTMLInputElement>("input[name=title]")!.value =
-    defaults.title ?? "";
-  const includeDate = wizard.querySelector<HTMLInputElement>(
-    "input[name=includeDate]",
-  )!;
-  const date = wizard.querySelector<HTMLInputElement>("input[name=date]")!;
-  includeDate.checked = defaults.date != null;
-  date.value = defaults.date ?? todayIsoDate();
-  wizard.querySelector<HTMLInputElement>("input[name=tags]")!.value =
-    defaults.tags?.join(", ") ?? "";
-  wizard.querySelector<HTMLInputElement>("input[name=aliases]")!.value =
-    defaults.aliases?.join(", ") ?? "";
-  wizard.querySelector<HTMLInputElement>("input[name=status]")!.value =
-    defaults.status ?? "";
-  const primary = wizard.querySelector<HTMLButtonElement>("button.primary")!;
-  primary.textContent = options.submitLabel ?? "Insert";
-  // Escape leaves returnValue unchanged; reset so a cancel cannot inherit
-  // "insert" from a previous use of the reused dialog.
-  const previousFocus = document.activeElement;
-  currentFocusRestore = () => (previousFocus as HTMLElement | null)?.focus();
-  currentResolve = resolve;
-  wizard.returnValue = "";
-  wizard.showModal();
-  return promise;
+  return open((fields) => {
+    fields.title.value = defaults.title ?? "";
+    fields.includeDate.checked = defaults.date != null;
+    fields.date.value = defaults.date ?? todayIsoDate();
+    fields.tags.value = defaults.tags?.join(", ") ?? "";
+    fields.aliases.value = defaults.aliases?.join(", ") ?? "";
+    fields.status.value = defaults.status ?? "";
+    fields.primary.textContent = options.submitLabel ?? "Insert";
+  });
 }

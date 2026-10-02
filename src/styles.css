@@ -1112,28 +1112,6 @@ dialog:is(#frontmatter-wizard, #insert-table) button.primary {
   outline-offset: -1px;
 }
 
-.find-btn {
-  min-width: 26px;
-  height: 26px;
-  padding: 0 6px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--code-bg);
-  color: var(--fg);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.find-btn:hover {
-  background: var(--bg);
-  border-color: var(--accent);
-}
-
-.find-btn[aria-pressed="true"] {
-  color: var(--accent);
-  border-color: var(--accent);
-}
-
 #replace-toggle {
   font-size: 10px;
   padding: 0;

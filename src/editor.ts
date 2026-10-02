@@ -300,22 +300,30 @@ export async function createEditor(
     }
   };
 
-  /** A thematic break as its own block; keeps any paragraph splits intact. */
-  const insertHr = (): void => {
-    relocateForBlockInsert(view.state.schema.nodes.hr);
+  /**
+   * Shared transaction tail for block inserts: replaces the selection with
+   * `node`, parks the caret at the first selectable position after it and
+   * appends a paragraph when the node ends the document (nothing to select).
+   */
+  const dispatchBlockInsert = (node: ProsemirrorNode): void => {
     const { state } = view;
     const { from } = state.selection;
-    const tr = state.tr.replaceSelectionWith(state.schema.nodes.hr.create());
+    const tr = state.tr.replaceSelectionWith(node);
     const next = Selection.findFrom(tr.doc.resolve(from), 1, true);
     if (next) {
       tr.setSelection(next);
     } else {
-      // Nothing selectable after the hr (document end): add a paragraph.
+      // Nothing selectable after the node (document end): add a paragraph.
       tr.insert(tr.doc.content.size, state.schema.nodes.paragraph.create());
       tr.setSelection(TextSelection.create(tr.doc, tr.doc.content.size - 1));
     }
     tr.scrollIntoView();
     view.dispatch(tr);
+  };
+  /** A thematic break as its own block; keeps any paragraph splits intact. */
+  const insertHr = (): void => {
+    relocateForBlockInsert(view.state.schema.nodes.hr);
+    dispatchBlockInsert(view.state.schema.nodes.hr.create());
   };
   const toolbar = createSelectionToolbar({
     view,
@@ -440,20 +448,7 @@ export async function createEditor(
   const insertCodeBlock = (): void => {
     leaveFootnoteDefinition();
     relocateForBlockInsert(view.state.schema.nodes.code_block, ["blockquote"]);
-    const { state } = view;
-    const { from } = state.selection;
-    const tr = state.tr.replaceSelectionWith(
-      state.schema.nodes.code_block.create(),
-    );
-    const next = Selection.findFrom(tr.doc.resolve(from), 1, true);
-    if (next) {
-      tr.setSelection(next);
-    } else {
-      tr.insert(tr.doc.content.size, state.schema.nodes.paragraph.create());
-      tr.setSelection(TextSelection.create(tr.doc, tr.doc.content.size - 1));
-    }
-    tr.scrollIntoView();
-    view.dispatch(tr);
+    dispatchBlockInsert(view.state.schema.nodes.code_block.create());
   };
 
   /** GitHub-style alert: a blockquote whose first line is `[!KIND]`. */
@@ -484,24 +479,14 @@ export async function createEditor(
         callCommand(insertTableCommand.key, { row: rows, col: cols }),
       );
     },
-    horizontalRule: () => insertHr(),
-    codeBlock: () => insertCodeBlock(),
+    horizontalRule: insertHr,
+    codeBlock: insertCodeBlock,
     alert: insertAlert,
     footnote: insertFootnote,
     toc: () => {
       leaveFootnoteDefinition();
       relocateForBlockInsert(view.state.schema.nodes.toc, ["blockquote"]);
-      const { state } = view;
-      const { from } = state.selection;
-      const tr = state.tr.replaceSelectionWith(state.schema.nodes.toc.create());
-      const next = Selection.findFrom(tr.doc.resolve(from), 1, true);
-      if (next) {
-        tr.setSelection(next);
-      } else {
-        tr.insert(tr.doc.content.size, state.schema.nodes.paragraph.create());
-        tr.setSelection(TextSelection.create(tr.doc, tr.doc.content.size - 1));
-      }
-      view.dispatch(tr.scrollIntoView());
+      dispatchBlockInsert(view.state.schema.nodes.toc.create());
     },
   };
 

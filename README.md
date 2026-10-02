@@ -189,6 +189,7 @@ release binary is at `src-tauri/target/release/marky`.
 | --- | --- |
 | `src/` | TypeScript editor, toolbar, search, proofreading, and document workflows |
 | `src-tauri/` | Rust application shell, native menus and dialogs, and file access |
+| `src/modal-dialog.ts` | Shared modal reuse, submission/cancellation, and focus restoration |
 | `src/recovery.ts` | Debounced recovery snapshots, serialized writes, and save/discard cleanup |
 | `src-tauri/src/recovery.rs` | Private, atomic snapshot storage and multi-instance recovery locks |
 | `tests/` | Frontend behavioral tests |
