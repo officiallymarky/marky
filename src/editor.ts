@@ -6,6 +6,7 @@ import {
   prosePluginsCtx,
   parserCtx,
   serializerCtx,
+  remarkCtx,
 } from "@milkdown/kit/core";
 import {
   EditorState,
@@ -63,7 +64,9 @@ import { nextFootnoteIndex, restoreFootnoteRefs } from "./footnote";
 import { createFindApi, findPlugin, type FindHandle } from "./find";
 import { createSpellCheck, spellPlugin, type SpellCheckHandle } from "./harper";
 import { codeBlockTabKeymap } from "./code-block-tab";
-import { tocInputRule, tocNode, tocPlugin, tocRemark } from "./toc";
+import { collectTocHeadings, tocInputRule, tocNode, tocPlugin, tocRemark, type TocHeading } from "./toc";
+import { collectSourceHeadings } from "./outline";
+import type { MarkdownNode } from "@milkdown/kit/transformer";
 
 export interface EditorHandle {
   /** Current document serialized back to markdown. */
@@ -91,6 +94,12 @@ export interface EditorHandle {
   search: FindHandle;
   /** Spell and grammar check; disabled while the user turned it off. */
   spelling: SpellCheckHandle;
+  /** Read-only heading navigation in rich and source modes. */
+  outline: {
+    headings(source?: string): readonly TocHeading[];
+    top(pos: number): number | null;
+    jump(pos: number): void;
+  };
   destroy(): Promise<void>;
 }
 
@@ -526,6 +535,22 @@ export async function createEditor(
     insert,
     search: find,
     spelling,
+    outline: {
+      headings: (source) => source === undefined
+        ? collectTocHeadings(view.state.doc)
+        : collectSourceHeadings(source, (body) =>
+            editor.action((ctx) => ctx.get(remarkCtx).parse(body)) as unknown as MarkdownNode),
+      top: (pos) => {
+        const target = view.nodeDOM(pos);
+        return target instanceof HTMLElement ? target.getBoundingClientRect().top : null;
+      },
+      jump: (pos) => {
+        view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(pos + 1))));
+        view.focus();
+        const target = view.nodeDOM(pos);
+        if (target instanceof HTMLElement) target.scrollIntoView({ block: "start" });
+      },
+    },
     setFocusMode(on: boolean) {
       focusEnabled = on;
       container.classList.toggle("focus-mode", on);

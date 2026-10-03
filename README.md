@@ -167,9 +167,21 @@ inside code blocks, inline code, lists, blockquotes, or prose stay literal; use
 | `Ctrl+Z` | Undo a document edit, including edits made in the other mode |
 | `Ctrl+Y` / `Ctrl+Shift+Z` | Redo a document edit |
 | `Tab` | Insert two spaces in a code block, indent a list item, or move to the next table cell |
+| `F6` | Toggle the heading outline side panel |
 | `F7` | Toggle spelling and grammar checking |
 | `F8` | Toggle focus mode |
 | `F9` | Cycle themes (Appearance menu picks a specific one) |
+
+### Outline panel
+
+Open **View > Outline (F6)** or click **Outline** in the status bar to show a live
+heading outline beside the editor. Headings are indented by hierarchy; duplicate
+titles remain separately navigable. Click an entry or press Enter to jump to it.
+Use Up/Down and Home/End to move through the panel, and Escape to close it.
+
+The outline updates after edits, undo/redo, document changes, and rich/source
+mode switches. The current section follows the caret and, in rich mode, scrolling.
+Opening the panel and navigating it do not change the document.
 
 ## Development
 

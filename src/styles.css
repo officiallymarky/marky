@@ -274,8 +274,115 @@ body {
   font-family: system-ui, "Segoe UI", "Noto Sans", sans-serif;
 }
 
+#workspace {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+#outline-panel[hidden] {
+  display: none;
+}
+
+#outline-panel {
+  width: clamp(180px, 24vw, 260px);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  background: var(--code-bg);
+}
+
+#outline-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 12px 10px 16px;
+}
+
+#outline-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+#outline-close {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 4px 6px;
+}
+
+#outline-panel nav {
+  overflow-y: auto;
+  padding: 0 8px 16px;
+}
+
+#outline-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+#outline-list button {
+  display: block;
+  width: 100%;
+  border: none;
+  border-left: 2px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: left;
+  padding: 6px 8px 6px calc(8px + var(--outline-depth) * 12px);
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+#outline-list button:hover,
+#outline-close:hover {
+  background: var(--bg);
+  color: var(--fg);
+}
+
+#outline-list button[aria-current] {
+  border-left-color: var(--accent);
+  background: var(--bg);
+  color: var(--accent);
+}
+
+#outline-list button:focus-visible,
+#outline-close:focus-visible,
+#status-outline:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+#outline-empty {
+  margin: 8px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+@media (max-width: 600px) {
+  #outline-panel {
+    width: 160px;
+  }
+
+  #workspace #editor,
+  #workspace #raw-editor {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+}
+
 #app {
   flex: 1;
+  min-width: 0;
   overflow-y: auto;
 }
 
@@ -685,7 +792,8 @@ body.has-frontmatter #editor {
   color: var(--accent);
 }
 
-#status-raw {
+#status-raw,
+#status-outline {
   background: none;
   border: none;
   color: var(--muted);
@@ -696,12 +804,14 @@ body.has-frontmatter #editor {
   border-radius: 4px;
 }
 
-#status-raw:hover {
+#status-raw:hover,
+#status-outline:hover {
   color: var(--fg);
   background: var(--code-bg);
 }
 
-#status-raw.active {
+#status-raw.active,
+#status-outline[aria-expanded="true"] {
   color: var(--accent);
 }
 

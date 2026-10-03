@@ -764,6 +764,8 @@ pub fn run() {
 
             let focus_item =
                 MenuItemBuilder::with_id("focus", "Focus Mode (F8)").build(app)?;
+            let outline_item =
+                MenuItemBuilder::with_id("outline", "Outline (F6)").build(app)?;
             let theme_item =
                 MenuItemBuilder::with_id("theme", "Next Theme (F9)").build(app)?;
             let theme_light_item =
@@ -824,6 +826,7 @@ pub fn run() {
             let spell_item =
                 MenuItemBuilder::with_id("spell", "Spell & Grammar Check (F7)").build(app)?;
             let view = SubmenuBuilder::new(app, "View")
+                .item(&outline_item)
                 .item(&focus_item)
                 .separator()
                 .item(&raw_item)

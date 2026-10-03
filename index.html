@@ -9,21 +9,33 @@
   </head>
 
   <body>
-    <main id="app">
-      <div id="frontmatter" hidden>
-        <div id="frontmatter-head">
-          <span>Frontmatter</span>
-          <span>YAML</span>
+    <div id="workspace">
+      <aside id="outline-panel" aria-labelledby="outline-title" hidden>
+        <div id="outline-head">
+          <h2 id="outline-title">Outline</h2>
+          <button id="outline-close" type="button" aria-label="Close outline" title="Close outline (F6)">&#10005;</button>
         </div>
-        <textarea
-          id="frontmatter-editor"
-          spellcheck="false"
-          placeholder="title: My document"
-        ></textarea>
-      </div>
-      <textarea id="raw-editor" hidden spellcheck="false"></textarea>
-      <div id="editor"></div>
-    </main>
+        <nav aria-label="Document headings">
+          <ul id="outline-list"></ul>
+          <p id="outline-empty" role="status">Add headings to see your document outline.</p>
+        </nav>
+      </aside>
+      <main id="app">
+        <div id="frontmatter" hidden>
+          <div id="frontmatter-head">
+            <span>Frontmatter</span>
+            <span>YAML</span>
+          </div>
+          <textarea
+            id="frontmatter-editor"
+            spellcheck="false"
+            placeholder="title: My document"
+          ></textarea>
+        </div>
+        <textarea id="raw-editor" hidden spellcheck="false"></textarea>
+        <div id="editor"></div>
+      </main>
+    </div>
     <div id="find-bar" hidden>
       <div class="find-row">
         <button id="replace-toggle" type="button" aria-expanded="false" title="Toggle replace (Ctrl+H)">&#9656;</button>
@@ -43,6 +55,7 @@
     <footer id="statusbar">
       <span id="status-words">0 words</span>
       <span id="status-chars">0 chars</span>
+      <button id="status-outline" type="button" aria-expanded="false" aria-controls="outline-panel" title="Toggle outline (F6)">Outline</button>
       <span id="status-focus" hidden>Focus mode (F8)</span>
       <button id="status-raw" type="button" aria-pressed="false">Raw mode</button>
       <span id="status-path">unsaved</span>

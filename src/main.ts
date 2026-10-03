@@ -42,6 +42,7 @@ import {
 } from "./frontmatter-wizard";
 import { openTableDialog } from "./table-dialog";
 import { createSearchPanel } from "./search";
+import { createOutlinePanel, scrollSourceTo } from "./outline";
 import { readSpellEnabled, writeSpellEnabled } from "./harper";
 import {
   FONT_FAMILIES,
@@ -273,6 +274,7 @@ function restoreHistory(redo = false): void {
   syncLiveContent();
   refreshChrome();
   if (searchPanel.isOpen()) searchPanel.retarget();
+  outlinePanel.refresh();
 }
 
 async function replaceDocument(
@@ -335,6 +337,7 @@ async function replaceDocument(
   if (!recovered && doc.path) await rememberDocument(doc.path);
   refreshChrome();
   if (searchPanel.isOpen()) searchPanel.retarget();
+  outlinePanel.refresh();
   if (recovered) await checkpointRecovery();
   try {
     await recovery.discard(previous.recoveryId);
@@ -544,6 +547,7 @@ function setRawMode(on: boolean) {
   statusRaw.setAttribute("aria-pressed", String(on));
   refreshChrome();
   if (searchPanel.isOpen()) searchPanel.retarget();
+  outlinePanel.refresh();
 }
 
 function toggleFocusMode() {
@@ -637,6 +641,27 @@ const searchPanel = createSearchPanel({
   showError: (error) => void showError("Find & Replace", error),
 });
 
+const outlinePanel = createOutlinePanel({
+  editorRoot,
+  rawEditor,
+  headings: () => documentReady
+    ? handle?.outline.headings(rawMode ? rawEditor.value : undefined) ?? []
+    : [],
+  currentPosition: () => rawMode ? rawEditor.selectionStart : handle?.snapshot().selection.from ?? 0,
+  sourceMode: () => rawMode,
+  headingTop: (pos) => handle?.outline.top(pos) ?? null,
+  jump: (pos) => {
+    if (rawMode) {
+      rawEditor.focus();
+      rawEditor.setSelectionRange(pos, pos);
+      scrollSourceTo(rawEditor, pos);
+    } else {
+      handle?.outline.jump(pos);
+    }
+  },
+  focusEditor: () => rawMode ? rawEditor.focus() : handle?.focus(),
+});
+
 function isDocumentTarget(target: EventTarget | null): boolean {
   return (
     target === rawEditor ||
@@ -668,6 +693,11 @@ window.addEventListener("keydown", (event) => {
 }, true);
 window.addEventListener("keydown", (event) => {
   if (!initialized) return;
+  if (event.key === "F6") {
+    event.preventDefault();
+    if (!event.repeat && !event.isComposing) outlinePanel.toggle();
+    return;
+  }
   if (event.key === "F7") {
     toggleSpellCheck();
     return;
@@ -936,6 +966,8 @@ async function menuAction(action: string): Promise<void> {
       return void insertFromMenu((i) => i.toc());
     case "close":
       return appWindow.close();
+    case "outline":
+      return void outlinePanel.toggle();
     case "focus":
       return void toggleFocusMode();
     case "raw":
