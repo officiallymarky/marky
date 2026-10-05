@@ -2,6 +2,10 @@ import type { MarkdownNode } from "@milkdown/kit/transformer";
 import { collectHeadings, type HeadingRecord, type TocHeading } from "./toc";
 import { splitFrontmatter } from "./frontmatter";
 
+/** Largest heading top margin (h1: 0.9em, ~27px) plus slack, so a section stays
+ *  current until its heading actually clears the viewport top. */
+const HEADING_TOP_MARGIN = 64;
+
 /** Use the editor's Markdown parser so fences, Setext headings and nesting agree. */
 export function collectSourceHeadings(
   source: string,
@@ -74,7 +78,7 @@ export function createOutlinePanel(options: OutlineOptions) {
   function updateCurrent(useSelection = true): void {
     if (panel.hidden) return;
     const position = useSelection || options.sourceMode() ? options.currentPosition() : null;
-    const edge = scroller.getBoundingClientRect().top + 64;
+    const edge = scroller.getBoundingClientRect().top + HEADING_TOP_MARGIN;
     let next = position === null && headings.length ? 0 : -1;
     for (let index = 0; index < headings.length; index++) {
       if (position !== null) {
