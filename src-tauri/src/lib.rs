@@ -689,17 +689,23 @@ pub fn run() {
 
                 let window = app.get_webview_window("main").ok_or("main window is missing")?;
                 let gtk_window = window.gtk_window()?;
-                // Tao's Wayland header has its own title, separate from the window.
-                if let Some(header) = gtk_window
+                if let Some(titlebar) = gtk_window
                     .titlebar()
-                    .and_then(|bar| bar.downcast::<gtk::Bin>().ok())
-                    .and_then(|bar| bar.child())
-                    .and_then(|child| child.downcast::<gtk::HeaderBar>().ok())
+                    .and_then(|bar| bar.downcast::<gtk::EventBox>().ok())
                 {
-                    gtk_window
-                        .bind_property("title", &header, "title")
-                        .sync_create()
-                        .build();
+                    // Tao stacks this event window above the HeaderBar, where it
+                    // intercepts pointer input meant for the titlebar buttons.
+                    titlebar.set_above_child(false);
+                    // Tao's Wayland header has its own title, separate from the window.
+                    if let Some(header) = titlebar
+                        .child()
+                        .and_then(|child| child.downcast::<gtk::HeaderBar>().ok())
+                    {
+                        gtk_window
+                            .bind_property("title", &header, "title")
+                            .sync_create()
+                            .build();
+                    }
                 }
 
                 // WebKit's default context menu carries entries that mean
