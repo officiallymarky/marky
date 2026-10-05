@@ -646,6 +646,9 @@ async fn release_recovery(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Keep KDE from substituting the installed launcher's icon for dev windows.
+    #[cfg(all(target_os = "linux", debug_assertions))]
+    gtk::glib::set_prgname(Some("marky-dev"));
     // NVIDIA Wayland: webkit2gtk crashes or renders a dead webview
     // (Gdk protocol error / GBM buffer failure) without this workaround,
     // matching the dev recipe in the justfile. Must be set before the
