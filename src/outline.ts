@@ -1,5 +1,5 @@
 import type { MarkdownNode } from "@milkdown/kit/transformer";
-import type { TocHeading } from "./toc";
+import { collectHeadings, type HeadingRecord, type TocHeading } from "./toc";
 import { splitFrontmatter } from "./frontmatter";
 
 /** Use the editor's Markdown parser so fences, Setext headings and nesting agree. */
@@ -9,8 +9,7 @@ export function collectSourceHeadings(
 ): TocHeading[] {
   const { body } = splitFrontmatter(source);
   const offset = source.length - body.length;
-  const headings: TocHeading[] = [];
-  const levels: number[] = [];
+  const records: HeadingRecord[] = [];
   const text = (node: MarkdownNode): string => {
     if (node.type === "image") return String(node.alt ?? "");
     return node.children?.map(text).join("") ?? String(node.value ?? "");
@@ -20,16 +19,13 @@ export function collectSourceHeadings(
       const title = text(node);
       const start = node.position?.start.offset;
       if (!title.trim() || start === undefined) return;
-      const level = Number(node.depth);
-      while (levels.length && levels[levels.length - 1] >= level) levels.pop();
-      headings.push({ text: title, id: "", pos: start + offset, level, depth: levels.length });
-      levels.push(level);
+      records.push({ text: title, pos: start + offset, level: Number(node.depth) });
       return;
     }
     node.children?.forEach(walk);
   };
   walk(parse(body));
-  return headings;
+  return collectHeadings(records);
 }
 
 /** Measure wrapped source lines without changing the textarea's contents or undo. */

@@ -15,25 +15,39 @@ export interface TocHeading {
   depth: number;
 }
 
-/** Heading positions keep duplicate titles navigable without inventing IDs. */
-export function collectTocHeadings(doc: ProseNode): TocHeading[] {
+export interface HeadingRecord {
+  text: string;
+  pos: number;
+  level: number;
+  id?: string;
+}
+
+/** Nesting depth comes from the running stack of still-open heading levels. */
+export function collectHeadings(records: Iterable<HeadingRecord>): TocHeading[] {
   const headings: TocHeading[] = [];
   const levels: number[] = [];
+  for (const { text, pos, level, id } of records) {
+    while (levels.length && levels[levels.length - 1] >= level) levels.pop();
+    headings.push({ text, id: id ?? "", pos, level, depth: levels.length });
+    levels.push(level);
+  }
+  return headings;
+}
+
+/** Heading positions keep duplicate titles navigable without inventing IDs. */
+export function collectTocHeadings(doc: ProseNode): TocHeading[] {
+  const records: HeadingRecord[] = [];
   doc.descendants((node, pos) => {
     if (node.type.name !== "heading" || !node.textContent.trim()) return;
-    const level = Number(node.attrs.level);
-    while (levels.length && levels[levels.length - 1] >= level) levels.pop();
-    headings.push({
+    records.push({
       text: node.textContent,
       id: String(node.attrs.id ?? ""),
       pos,
-      level,
-      depth: levels.length,
+      level: Number(node.attrs.level),
     });
-    levels.push(level);
     return false;
   });
-  return headings;
+  return collectHeadings(records);
 }
 
 export const tocSchema: NodeSchema = {
