@@ -539,7 +539,8 @@ export async function createEditor(
       headings: (source) => source === undefined
         ? collectTocHeadings(view.state.doc)
         : collectSourceHeadings(source, (body) =>
-            editor.action((ctx) => ctx.get(remarkCtx).parse(body)) as unknown as MarkdownNode),
+            // remark parses mdast Root; traversal uses standard mdast fields (MarkdownNode adds an index signature).
+            editor.action((ctx) => ctx.get(remarkCtx).parse(body)) as MarkdownNode),
       top: (pos) => {
         const target = view.nodeDOM(pos);
         return target instanceof HTMLElement ? target.getBoundingClientRect().top : null;
