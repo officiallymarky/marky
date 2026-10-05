@@ -482,7 +482,9 @@ fn atomic_write(path: &Path, content: &str) -> io::Result<()> {
         let sync_result = file.sync_all();
         drop(file);
 
-        let result = sync_result.and_then(|()| fs::rename(&temp_path, &write_path));
+        let result = sync_result
+            .and_then(|()| fs::rename(&temp_path, &write_path))
+            .and_then(|()| sync_directory(parent));
         if result.is_err() {
             let _ = fs::remove_file(&temp_path);
         }
@@ -493,6 +495,19 @@ fn atomic_write(path: &Path, content: &str) -> io::Result<()> {
         io::ErrorKind::AlreadyExists,
         "could not reserve a temporary save file",
     ))
+}
+
+/// Sync the directory entry so a completed rename survives power loss.
+/// The standard library cannot open directories on Windows, so only Unix
+/// can enforce this; elsewhere the write itself is already synced.
+#[cfg(unix)]
+fn sync_directory(dir: &Path) -> io::Result<()> {
+    fs::File::open(dir)?.sync_all()
+}
+
+#[cfg(not(unix))]
+fn sync_directory(_dir: &Path) -> io::Result<()> {
+    Ok(())
 }
 
 #[tauri::command]
@@ -883,7 +898,8 @@ pub fn run() {
 mod tests {
     use super::{
         atomic_write, document_status, read_tracked_document, read_tracked_document_with,
-        save_to_path, startup_document_from_argument, ConflictKind, DocumentIdentities,
+        save_to_path, startup_document_from_argument, sync_directory, ConflictKind,
+        DocumentIdentities,
     };
     use std::fs;
     use std::io::Read;
@@ -898,6 +914,15 @@ mod tests {
             std::env::temp_dir().join(format!("marky-atomic-save-{}-{nonce}", std::process::id()));
         fs::create_dir(&path).unwrap();
         path
+    }
+
+    #[test]
+    fn sync_directory_opens_real_directories() {
+        let directory = temporary_directory();
+        assert!(sync_directory(&directory).is_ok());
+        #[cfg(unix)]
+        assert!(sync_directory(&directory.join("missing")).is_err());
+        fs::remove_dir(&directory).unwrap();
     }
 
     #[test]
