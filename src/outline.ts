@@ -75,24 +75,43 @@ export function createOutlinePanel(options: OutlineOptions) {
   let current = -1;
   let frame = 0;
 
-  function updateCurrent(useSelection = true): void {
-    if (panel.hidden) return;
-    const position = useSelection || options.sourceMode() ? options.currentPosition() : null;
-    const edge = scroller.getBoundingClientRect().top + HEADING_TOP_MARGIN;
-    let next = position === null && headings.length ? 0 : -1;
-    for (let index = 0; index < headings.length; index++) {
-      if (position !== null) {
-        if (headings[index].pos > position) break;
-      } else {
-        const top = options.headingTop(headings[index].pos);
-        if (top === null || top > edge) break;
-      }
-      next = index;
-    }
+  /** Highlight the outline entry for `next`, if the current section changed. */
+  function applyCurrent(next: number): void {
     if (next === current) return;
     if (current >= 0) buttons[current]?.removeAttribute("aria-current");
     current = next;
     if (current >= 0) buttons[current]?.setAttribute("aria-current", "location");
+  }
+
+  /** The section containing the caret: clicked or typed edits trust the caret. */
+  function updateFromCaret(): void {
+    if (panel.hidden) return;
+    const position = options.currentPosition();
+    let next = -1;
+    for (let index = 0; index < headings.length; index++) {
+      if (headings[index].pos > position) break;
+      next = index;
+    }
+    applyCurrent(next);
+  }
+
+  /** The section scrolled to: topmost heading that has not cleared the viewport top. */
+  function updateFromScroll(): void {
+    if (panel.hidden) return;
+    const edge = scroller.getBoundingClientRect().top + HEADING_TOP_MARGIN;
+    let next = headings.length ? 0 : -1;
+    for (let index = 0; index < headings.length; index++) {
+      const top = options.headingTop(headings[index].pos);
+      if (top === null || top > edge) break;
+      next = index;
+    }
+    applyCurrent(next);
+  }
+
+  /** In source mode the caret drives the highlight even while scrolling. */
+  function updateOnScroll(): void {
+    if (options.sourceMode()) updateFromCaret();
+    else updateFromScroll();
   }
 
   function refresh(): void {
@@ -113,7 +132,7 @@ export function createOutlinePanel(options: OutlineOptions) {
         button.style.setProperty("--outline-depth", String(heading.depth));
         button.addEventListener("click", () => {
           options.jump(heading.pos);
-          updateCurrent();
+          updateFromCaret();
         });
         return button;
       });
@@ -128,7 +147,7 @@ export function createOutlinePanel(options: OutlineOptions) {
     }
     empty.hidden = headings.length !== 0;
     list.hidden = headings.length === 0;
-    updateCurrent();
+    updateFromCaret();
   }
 
   function scheduleRefresh(): void {
@@ -175,10 +194,10 @@ export function createOutlinePanel(options: OutlineOptions) {
   const observer = new MutationObserver(scheduleRefresh);
   observer.observe(options.editorRoot, { childList: true, subtree: true, characterData: true });
   options.rawEditor.addEventListener("input", scheduleRefresh);
-  options.rawEditor.addEventListener("select", () => updateCurrent());
-  document.addEventListener("selectionchange", () => updateCurrent());
-  scroller.addEventListener("scroll", () => updateCurrent(false), { passive: true });
-  window.addEventListener("resize", () => updateCurrent(false));
+  options.rawEditor.addEventListener("select", updateFromCaret);
+  document.addEventListener("selectionchange", updateFromCaret);
+  scroller.addEventListener("scroll", updateOnScroll, { passive: true });
+  window.addEventListener("resize", updateOnScroll);
 
   return { toggle: () => setOpen(Boolean(panel.hidden)), refresh: scheduleRefresh };
 }
