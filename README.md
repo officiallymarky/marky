@@ -89,6 +89,9 @@ or **Keep editing**. Read-only files are rejected on save. Atomic replacement is
 used where file metadata can be preserved; files that require in-place writes,
 such as hard-linked files, retain that behavior.
 
+Atomic saves are fully synced to disk — file contents and the directory entry —
+so a completed save survives power loss.
+
 ### Crash recovery
 
 marky automatically backs up unsaved writing to private recovery files in the
