@@ -3,9 +3,9 @@ set shell := ["bash", "-uc"]
 default: verify
 
 # Run the app in development mode (vite dev server + tauri window)
-# NVIDIA Wayland: webkit2gtk crashes without the env workaround.
+# Match the AppImage's X11 backend and Adwaita theme; keep the NVIDIA WebKit workaround.
 dev:
-    WEBKIT_DISABLE_DMABUF_RENDERER=1 pnpm tauri dev
+    GDK_BACKEND=x11 GTK_THEME=Adwaita:dark CARGO_NET_OFFLINE=true WEBKIT_DISABLE_DMABUF_RENDERER=1 pnpm tauri dev
 
 # Build a release bundle (deb, rpm, AppImage)
 # linuxdeploy needs extract-and-run on systems without FUSE.
