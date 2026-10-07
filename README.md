@@ -48,8 +48,8 @@ with error hints for invalid syntax. See the
 
 Find and replace includes live match highlighting, a match counter,
 previous/next navigation, and case-sensitive search. It works in both the rich
-editor and source mode. In the rich editor, Replace All is a single undoable
-operation; replacements in both surfaces feed the shared document history.
+editor and source mode. Replace All is a single undoable operation in either
+mode; replacements feed the shared document history.
 
 [Harper](https://writewithharper.com) provides on-device spelling and grammar
 checking. Select an underlined issue to review suggestions, ignore it, or add a
@@ -129,6 +129,10 @@ document actions, search, content insertion, display settings, and theme and
 font choices. On Linux, the menu bar and its dropdowns follow the selected editor
 theme, with thin-bordered dropdowns and no added shadow or glow. The floating
 toolbar provides formatting and insertion controls without leaving the editor.
+
+The last closed window's size, position, and maximized state are restored on
+startup. If its monitor is no longer connected, the window is brought back
+on-screen. Wayland compositors may choose the window position themselves.
 
 ### Recent files
 

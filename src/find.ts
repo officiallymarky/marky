@@ -21,14 +21,8 @@ export interface FindQuery {
   caseSensitive: boolean;
 }
 
-/** A match as string offsets into a single text string. */
-export interface StringMatch {
-  start: number;
-  end: number;
-}
-
-/** A match as ProseMirror doc positions. */
-export interface DocMatch {
+/** A match range in string offsets or ProseMirror document positions. */
+export interface MatchRange {
   from: number;
   to: number;
 }
@@ -53,8 +47,8 @@ export function findTextMatches(
   text: string,
   needle: string,
   caseSensitive: boolean,
-): StringMatch[] {
-  const matches: StringMatch[] = [];
+): MatchRange[] {
+  const matches: MatchRange[] = [];
   if (!needle) return matches;
   const len = needle.length;
   const same = caseSensitive
@@ -70,7 +64,7 @@ export function findTextMatches(
       }
     }
     if (hit) {
-      matches.push({ start: i, end: i + len });
+      matches.push({ from: i, to: i + len });
       i += len - 1;
     }
   }
@@ -81,9 +75,9 @@ export function findTextMatches(
 export function computeMatches(
   doc: ProsemirrorNode,
   query: FindQuery | null,
-): DocMatch[] {
+): MatchRange[] {
   if (!query || !query.needle) return [];
-  const out: DocMatch[] = [];
+  const out: MatchRange[] = [];
   doc.descendants((node, pos) => {
     if (!node.isText) return true;
     for (const m of findTextMatches(
@@ -91,7 +85,7 @@ export function computeMatches(
       query.needle,
       query.caseSensitive,
     )) {
-      out.push({ from: pos + m.start, to: pos + m.end });
+      out.push({ from: pos + m.from, to: pos + m.to });
     }
     return false;
   });
@@ -102,7 +96,7 @@ export function computeMatches(
  * Index of the match containing `from` (end-inclusive), else the last match
  * starting before it, else -1.
  */
-export function locateMatch(matches: DocMatch[], from: number | null): number {
+export function locateMatch(matches: readonly MatchRange[], from: number | null): number {
   if (from === null) return -1;
   let lastBefore = -1;
   for (let i = 0; i < matches.length; i++) {
@@ -115,7 +109,7 @@ export function locateMatch(matches: DocMatch[], from: number | null): number {
 }
 
 /** First match starting at/after `from`, wrapping to the first; -1 if empty. */
-export function nextMatchFrom(matches: DocMatch[], from: number): number {
+export function nextMatchFrom(matches: readonly MatchRange[], from: number): number {
   for (let i = 0; i < matches.length; i++) {
     if (matches[i].from >= from) return i;
   }
@@ -125,7 +119,7 @@ export function nextMatchFrom(matches: DocMatch[], from: number): number {
 /** Builds a transaction replacing `m` with `replacement`, keeping text marks. */
 export function replaceMatch(
   state: EditorState,
-  m: DocMatch,
+  m: MatchRange,
   replacement: string,
 ): Transaction {
   const tr = state.tr;

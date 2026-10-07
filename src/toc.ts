@@ -50,6 +50,14 @@ export function collectTocHeadings(doc: ProseNode): TocHeading[] {
   return collectHeadings(records);
 }
 
+/** Selects and reveals a heading in the rich editor. */
+export function jumpToHeading(view: EditorView, pos: number): void {
+  view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(pos + 1))));
+  view.focus();
+  const target = view.nodeDOM(pos);
+  if (target instanceof HTMLElement) target.scrollIntoView({ block: "start" });
+}
+
 export const tocSchema: NodeSchema = {
   group: "block",
   atom: true,
@@ -186,11 +194,7 @@ class TocView implements NodeView {
       link.addEventListener("mousedown", (event) => event.preventDefault());
       link.addEventListener("click", (event) => {
         event.preventDefault();
-        const { state } = this.view;
-        this.view.dispatch(state.tr.setSelection(TextSelection.near(state.doc.resolve(heading.pos + 1))));
-        this.view.focus();
-        const target = this.view.nodeDOM(heading.pos);
-        if (target instanceof HTMLElement) target.scrollIntoView({ block: "start" });
+        jumpToHeading(this.view, heading.pos);
       });
       item.append(link);
       lists[heading.depth].append(item);

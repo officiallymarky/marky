@@ -30,7 +30,7 @@ export const THEMES: readonly ThemeDefinition[] = [
 /** Fired on `document` whenever the theme changes (e.g. mermaid re-renders). */
 export const THEME_CHANGED_EVENT = "marky-theme-changed";
 
-export function themeById(id: ThemeId): ThemeDefinition {
+function themeById(id: ThemeId): ThemeDefinition {
   const theme = THEMES.find((candidate) => candidate.id === id);
   if (!theme) throw new Error(`Unknown theme: ${id}`);
   return theme;

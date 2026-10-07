@@ -37,18 +37,18 @@ const stateWith = (doc) => EditorState.create({ schema, plugins: [findPlugin], d
 
 test("findTextMatches finds every occurrence, honoring case and overlap", () => {
   assert.deepEqual(findTextMatches("ab ab ab", "ab", true), [
-    { start: 0, end: 2 },
-    { start: 3, end: 5 },
-    { start: 6, end: 8 },
+    { from: 0, to: 2 },
+    { from: 3, to: 5 },
+    { from: 6, to: 8 },
   ]);
   assert.deepEqual(findTextMatches("Ab aB ab", "ab", false), [
-    { start: 0, end: 2 },
-    { start: 3, end: 5 },
-    { start: 6, end: 8 },
+    { from: 0, to: 2 },
+    { from: 3, to: 5 },
+    { from: 6, to: 8 },
   ]);
-  assert.deepEqual(findTextMatches("Ab aB ab", "ab", true), [{ start: 6, end: 8 }]);
+  assert.deepEqual(findTextMatches("Ab aB ab", "ab", true), [{ from: 6, to: 8 }]);
   // Non-overlapping: "aaa" matches at 0 and 2, not at 1.
-  assert.deepEqual(findTextMatches("aaa", "aa", true), [{ start: 0, end: 2 }]);
+  assert.deepEqual(findTextMatches("aaa", "aa", true), [{ from: 0, to: 2 }]);
   assert.deepEqual(findTextMatches("abc", "", true), []);
 });
 

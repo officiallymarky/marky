@@ -64,7 +64,7 @@ import { nextFootnoteIndex, restoreFootnoteRefs } from "./footnote";
 import { createFindApi, findPlugin, type FindHandle } from "./find";
 import { createSpellCheck, spellPlugin, type SpellCheckHandle } from "./harper";
 import { codeBlockTabKeymap } from "./code-block-tab";
-import { collectTocHeadings, tocInputRule, tocNode, tocPlugin, tocRemark, type TocHeading } from "./toc";
+import { collectTocHeadings, jumpToHeading, tocInputRule, tocNode, tocPlugin, tocRemark, type TocHeading } from "./toc";
 import { collectSourceHeadings } from "./outline";
 import type { MarkdownNode } from "@milkdown/kit/transformer";
 
@@ -545,12 +545,7 @@ export async function createEditor(
         const target = view.nodeDOM(pos);
         return target instanceof HTMLElement ? target.getBoundingClientRect().top : null;
       },
-      jump: (pos) => {
-        view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(pos + 1))));
-        view.focus();
-        const target = view.nodeDOM(pos);
-        if (target instanceof HTMLElement) target.scrollIntoView({ block: "start" });
-      },
+      jump: (pos) => jumpToHeading(view, pos),
     },
     setFocusMode(on: boolean) {
       focusEnabled = on;

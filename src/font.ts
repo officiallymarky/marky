@@ -28,8 +28,8 @@ export const FONT_SIZES: readonly FontSizeOption[] = [
   { id: "large", label: "Large" },
 ];
 
-export const DEFAULT_FONT: FontId = "system";
-export const DEFAULT_FONT_SIZE: FontSizeId = "medium";
+const DEFAULT_FONT: FontId = "system";
+const DEFAULT_FONT_SIZE: FontSizeId = "medium";
 
 /** A stored value wins when it names an option; anything else keeps the default. */
 export function resolveFont(stored: string | null): FontId {

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { createSearchPanel } from "../src/search.ts";
+import { DocumentHistory } from "../src/document-history.ts";
 
 /**
  * Minimal DOM stand-in covering exactly the surface search.ts uses: element
@@ -96,12 +97,18 @@ function harness({ syncRefresh = true } = {}) {
   const editor = new FakeElement("textarea");
 
   const errors = [];
+  const history = new DocumentHistory();
+  let before = "";
+  editor.addEventListener("beforeinput", () => { before = editor.value; });
+  // Allow joining to expose missing boundaries around a search action.
+  editor.addEventListener("input", () => history.record(before, editor.value, true));
   globalThis.document = {
     activeElement: null,
     getElementById: (id) => byId.get(id) ?? null,
     execCommand(command, _ui, text) {
       if (command !== "insertText") return false;
       const { selectionStart: start, selectionEnd: end, value } = editor;
+      editor.dispatch("beforeinput");
       editor.value = value.slice(0, start) + text + value.slice(end);
       editor.selectionStart = editor.selectionEnd = start + text.length;
       editor.dispatch("input");
@@ -115,6 +122,7 @@ function harness({ syncRefresh = true } = {}) {
     surface: () => "raw",
     rich: () => null,
     focusSurface() {},
+    historyBoundary: () => history.boundary(),
     showError(error) {
       errors.push(error);
     },
@@ -139,6 +147,18 @@ function harness({ syncRefresh = true } = {}) {
     prev: () => prevBtn.dispatch("click"),
     replaceOne: () => replaceOne.dispatch("click"),
     replaceAll: () => replaceAll.dispatch("click"),
+    undo() {
+      const value = history.undo();
+      if (value !== null) editor.value = value;
+      panel.refresh();
+      return value;
+    },
+    redo() {
+      const value = history.redo();
+      if (value !== null) editor.value = value;
+      panel.refresh();
+      return value;
+    },
   };
 }
 
@@ -280,16 +300,32 @@ test("deleting an earlier match keeps the tracked current match", () => {
   assert.equal(h.errors.length, 0);
 });
 
-test("replace-all holds offsets while every replacement fires input", () => {
-  const h = harness();
-  h.editor.value = "x x x";
-  h.search("x", "y");
+for (const { source, replacement, replaced } of [
+  {
+    source: "# Note\nx 🐈 **X**\nplain x.\n",
+    replacement: "longer x$&\n",
+    replaced: "# Note\nlonger x$&\n 🐈 **longer x$&\n**\nplain longer x$&\n.\n",
+  },
+  { source: "xxx", replacement: "", replaced: "" },
+]) {
+  test(`replace-all undo/redo stays separate from neighboring edits (${JSON.stringify(replacement)})`, () => {
+    const h = harness();
+    h.editor.value = source;
+    edit(h.editor, 0, 0, "Before\n");
+    h.search("x", replacement);
 
-  h.replaceAll();
-  assert.equal(h.editor.value, "y y y");
-  assert.equal(h.count(), "No results");
-  assert.equal(h.errors.length, 0);
-});
+    h.replaceAll();
+    assert.equal(h.editor.value, `Before\n${replaced}`);
+    edit(h.editor, h.editor.value.length, h.editor.value.length, "After\n");
+    assert.equal(h.undo(), `Before\n${replaced}`);
+    assert.equal(h.undo(), `Before\n${source}`);
+    assert.equal(h.undo(), source);
+    assert.equal(h.redo(), `Before\n${source}`);
+    assert.equal(h.redo(), `Before\n${replaced}`);
+    assert.equal(h.redo(), `Before\n${replaced}After\n`);
+    assert.equal(h.errors.length, 0);
+  });
+}
 
 test("replace-all is stable when replacements contain the needle", () => {
   const h = harness();

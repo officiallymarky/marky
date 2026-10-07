@@ -18,7 +18,11 @@ const parseDimension = (input: HTMLInputElement, max: number): number => {
   return Number.isFinite(parsed) ? clamp(parsed, max) : 3;
 };
 
-const open = createModal<TableDimensions, {
+/**
+ * Shows the table dialog. Resolves the entered dimensions, or null when
+ * cancelled. The first row of the inserted table is a header row.
+ */
+export const openTableDialog: () => Promise<TableDimensions | null> = createModal<TableDimensions, {
   rows: HTMLInputElement;
   cols: HTMLInputElement;
 }>(() => {
@@ -57,11 +61,3 @@ const open = createModal<TableDimensions, {
     },
   };
 });
-
-/**
- * Shows the table dialog. Resolves the entered dimensions, or null when
- * cancelled. The first row of the inserted table is a header row.
- */
-export function openTableDialog(): Promise<TableDimensions | null> {
-  return open();
-}

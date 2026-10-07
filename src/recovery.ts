@@ -157,10 +157,10 @@ export function createRecoveryJournal(
     enqueue(id, runWrite(entry.payload, true));
   };
 
-  const clearJournal = (id: string, report: boolean): void => {
+  const clearJournal = (id: string): void => {
     stopScheduled(id);
     cancelQueued(id);
-    enqueue(id, runRemove(id, report));
+    enqueue(id, runRemove(id, true));
   };
 
   const schedule = (snapshot: RecoveryWrite, dirty: boolean): void => {
@@ -168,7 +168,7 @@ export function createRecoveryJournal(
     // Retired ids schedule nothing and must not disturb pending cleanups.
     if (retired.has(id)) return;
     if (!dirty) {
-      clearJournal(id, true);
+      clearJournal(id);
       return;
     }
     let entry = scheduled.get(id);

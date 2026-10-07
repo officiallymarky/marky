@@ -18,6 +18,7 @@ use tauri_plugin_dialog::DialogExt;
 mod native_menu;
 mod recovery;
 mod recent;
+mod window_state;
 
 const APP_TITLE: &str = "marky";
 static NEXT_TEMP_FILE_ID: AtomicU64 = AtomicU64::new(0);
@@ -897,6 +898,9 @@ pub fn run() {
                 .items(&[&file, &edit, &insert, &view, &appearance_menu])
                 .build()?;
             app.set_menu(menu)?;
+            let window = app.get_webview_window("main").ok_or("main window is missing")?;
+            window_state::install(&window, app.path().app_data_dir()?.join("window-state.json"))?;
+            window.show()?;
             Ok(())
         })
         .run(tauri::generate_context!())

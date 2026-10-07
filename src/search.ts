@@ -4,7 +4,7 @@
  * selections with `execCommand("insertText")`, whose input events feed the
  * document's shared undo timeline.
  */
-import { findTextMatches, type FindHandle, type FindQuery, type StringMatch } from "./find.ts";
+import { findTextMatches, locateMatch, nextMatchFrom, type FindHandle, type FindQuery, type MatchRange } from "./find.ts";
 
 export interface SearchPanelDeps {
   rawEditor: HTMLTextAreaElement;
@@ -14,6 +14,8 @@ export interface SearchPanelDeps {
   rich: () => FindHandle | null;
   /** Focus the underlying editing surface (on close). */
   focusSurface: () => void;
+  /** Keep bulk replacement separate from adjacent document edits. */
+  historyBoundary: () => void;
   /** UI error path (e.g. a failed raw-mode replacement). */
   showError: (error: unknown) => void;
 }
@@ -42,9 +44,9 @@ interface Surface
 }
 
 /** Textarea-backed find/replace for raw mode. */
-function createRawSurface(editor: HTMLTextAreaElement): Surface {
+function createRawSurface(editor: HTMLTextAreaElement, historyBoundary: () => void): Surface {
   let query: FindQuery | null = null;
-  let matches: StringMatch[] = [];
+  let matches: MatchRange[] = [];
   /**
    * Start offset of the current match, the raw counterpart of the rich
    * surface's tracked `currentFrom` (null when there is none). Match indexes
@@ -67,33 +69,13 @@ function createRawSurface(editor: HTMLTextAreaElement): Surface {
     const m = matches[i];
     const active = document.activeElement;
     editor.focus();
-    editor.setSelectionRange(m.start, m.end);
+    editor.setSelectionRange(m.from, m.to);
     if (active instanceof HTMLElement && active !== editor) active.focus();
-  };
-
-  /** First match starting at/after `pos`, else the first, else none. */
-  const from = (pos: number): number => {
-    for (let i = 0; i < matches.length; i++) {
-      if (matches[i].start >= pos) return i;
-    }
-    return matches.length ? 0 : -1;
-  };
-
-  /** The match containing `pos`, else the nearest one before it, else none. */
-  const locateAt = (pos: number): number => {
-    let lastBefore = -1;
-    for (let i = 0; i < matches.length; i++) {
-      const m = matches[i];
-      if (m.start <= pos && pos <= m.end) return i;
-      if (m.start < pos) lastBefore = i;
-      if (m.start > pos) break;
-    }
-    return lastBefore;
   };
 
   /** Index of the tracked current match (−1 when there is none). */
   const locate = (): number =>
-    currentFrom === null || !matches.length ? -1 : Math.max(0, locateAt(currentFrom));
+    currentFrom === null || !matches.length ? -1 : Math.max(0, locateMatch(matches, currentFrom));
 
   /** Maps the tracked position through the changed text without moving focus. */
   const rescan = (): void => {
@@ -135,8 +117,8 @@ function createRawSurface(editor: HTMLTextAreaElement): Surface {
     setQuery(q) {
       query = q && q.needle ? q : null;
       scan();
-      const idx = matches.length ? from(editor.selectionStart) : -1;
-      currentFrom = idx >= 0 ? matches[idx].start : null;
+      const idx = nextMatchFrom(matches, editor.selectionStart);
+      currentFrom = idx >= 0 ? matches[idx].from : null;
       if (idx >= 0) select(idx);
     },
     count() {
@@ -145,23 +127,23 @@ function createRawSurface(editor: HTMLTextAreaElement): Surface {
     next() {
       if (!matches.length) return;
       const idx = (locate() + 1) % matches.length;
-      currentFrom = matches[idx].start;
+      currentFrom = matches[idx].from;
       select(idx);
     },
     prev() {
       if (!matches.length) return;
       const cur = locate();
       const idx = cur <= 0 ? matches.length - 1 : cur - 1;
-      currentFrom = matches[idx].start;
+      currentFrom = matches[idx].from;
       select(idx);
     },
     replaceCurrent(text) {
       const cur = locate();
       if (cur < 0) return false;
       const m = matches[cur];
-      const after = m.start + text.length;
+      const after = m.from + text.length;
       editor.focus();
-      editor.setSelectionRange(m.start, m.end);
+      editor.setSelectionRange(m.from, m.to);
       swap(text);
       // A synchronous input→refresh may already have rescanned; scanning is
       // idempotent, so recompute from the live text either way.
@@ -169,8 +151,8 @@ function createRawSurface(editor: HTMLTextAreaElement): Surface {
       // Advance past the inserted text without wrapping onto the replacement.
       currentFrom = null;
       for (let i = 0; i < matches.length; i++) {
-        if (matches[i].start >= after) {
-          currentFrom = matches[i].start;
+        if (matches[i].from >= after) {
+          currentFrom = matches[i].from;
           select(i);
           break;
         }
@@ -180,16 +162,27 @@ function createRawSurface(editor: HTMLTextAreaElement): Surface {
     replaceAll(text) {
       if (!query?.needle) return 0;
       scan();
-      // Snapshot: each swap's input event may rescan `matches` mid-loop, but
-      // descending replacements keep the snapshot's offsets valid.
-      const list = matches;
-      const count = list.length;
+      const count = matches.length;
       if (!count) return 0;
-      editor.focus();
-      for (let i = count - 1; i >= 0; i--) {
-        const m = list[i];
-        editor.setSelectionRange(m.start, m.end);
-        swap(text);
+      const first = matches[0];
+      const last = matches[count - 1];
+      const value = editor.value;
+      const parts: string[] = [];
+      let from = first.from;
+      for (const match of matches) {
+        parts.push(value.slice(from, match.from), text);
+        from = match.to;
+      }
+      // One input event records the entire action in the shared timeline.
+      historyBoundary();
+      try {
+        editor.focus();
+        editor.setSelectionRange(first.from, last.to);
+        swap(parts.join(""));
+        const caret = first.from + text.length;
+        editor.setSelectionRange(caret, caret);
+      } finally {
+        historyBoundary();
       }
       scan();
       currentFrom = null;
@@ -221,7 +214,7 @@ export function createSearchPanel(deps: SearchPanelDeps): SearchPanel {
     "replace-all",
   ) as HTMLButtonElement;
 
-  const rawSurface = createRawSurface(deps.rawEditor);
+  const rawSurface = createRawSurface(deps.rawEditor, deps.historyBoundary);
 
   let open = false;
   let replaceVisible = false;

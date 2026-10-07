@@ -384,6 +384,7 @@ async function doFrontMatter() {
   if (rawMode) return; // raw mode edits the source directly
   const unsupported =
     "This front matter uses YAML syntax the dialog cannot rewrite safely. Use the front matter panel or raw mode instead.";
+  let block: string;
   if (frontContent !== null) {
     const { prefill, supported } = readKnownFields(frontContent);
     if (!supported) {
@@ -394,27 +395,20 @@ async function doFrontMatter() {
       submitLabel: "Update",
     });
     if (!updated) return;
-    const block = updateFrontMatterBlock(frontContent, updated);
-    if (!block) {
+    const updatedBlock = updateFrontMatterBlock(frontContent, updated);
+    if (!updatedBlock) {
       await showError("Front Matter", new Error(unsupported));
       return;
     }
-    if (block === frontContent) return;
-    const before = historySnapshot();
-    frontContent = block;
-    updateFrontPanel();
-    editHistory.record(before, historySnapshot());
-    historyBoundary();
-    documentSession.state.update(
-      combineFrontmatter(frontContent, handle?.getMarkdown() ?? ""),
-    );
-    refreshChrome();
-    return;
+    if (updatedBlock === frontContent) return;
+    block = updatedBlock;
+  } else {
+    const fields = await openFrontMatterWizard({ date: todayIsoDate() });
+    if (!fields) return;
+    block = buildFrontMatterBlock(fields);
   }
-  const fields = await openFrontMatterWizard({ date: todayIsoDate() });
-  if (!fields) return;
   const before = historySnapshot();
-  frontContent = buildFrontMatterBlock(fields);
+  frontContent = block;
   updateFrontPanel();
   editHistory.record(before, historySnapshot());
   historyBoundary();
@@ -638,6 +632,7 @@ const searchPanel = createSearchPanel({
       handle?.focus();
     }
   },
+  historyBoundary,
   showError: (error) => void showError("Find & Replace", error),
 });
 
