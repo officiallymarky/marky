@@ -109,8 +109,50 @@ jobs:
           # Tagged builds live on as release assets; artifacts are a convenience.
           retention-days: 14
 
+  dependency-security:
+    # Lockfile advisories, npm audit, and the bundled-dependency SBOM. Static
+    # scans only: no Rust toolchain, no build, no frontend bundle needed.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+        with:
+          version: 11.22.0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: pnpm
+
+      - name: Install just
+        # Pinned release verified against its published sha256.
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/just.tar.gz" \
+            https://github.com/casey/just/releases/download/1.58.0/just-1.58.0-x86_64-unknown-linux-musl.tar.gz
+          echo "4a5cc2f53e6f0f8c59092a6cc38291eb729d46a7dd95d3ae582008881b84931d  $RUNNER_TEMP/just.tar.gz" | sha256sum -c -
+          sudo tar -xzf "$RUNNER_TEMP/just.tar.gz" -C /usr/local/bin just
+
+      - name: Install osv-scanner
+        # Pinned release verified against its published sha256 (asset digest
+        # from the GitHub release). No ignore lists, no call analysis: every
+        # finding from the lockfiles is reported.
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/osv-scanner" \
+            https://github.com/google/osv-scanner/releases/download/v2.6.0/osv-scanner_linux_amd64
+          echo "ca69b3d3cd08f889a49dc0a383122f71cc528b83803671df5fd874d97485b108  $RUNNER_TEMP/osv-scanner" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/osv-scanner"
+          sudo mv "$RUNNER_TEMP/osv-scanner" /usr/local/bin/osv-scanner
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Dependency security
+        run: just dependency-security
+
   release:
-    needs: verify
+    needs: [verify, dependency-security]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-22.04
     permissions:

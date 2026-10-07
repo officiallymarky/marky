@@ -30,7 +30,33 @@ typecheck:
 verify: lint typecheck test
     cargo check --manifest-path src-tauri/Cargo.toml
 
-# Dependency vulnerability + secret scans
+# Dependency vulnerability + secret scans. Both always run even when the other
+# reports findings; the recipe fails if either scan fails.
 scan:
-    osv-scanner scan source -r .
-    gitleaks dir . --redact --max-target-megabytes 1
+    #!/usr/bin/env bash
+    set -uo pipefail
+    status=0
+    just dependency-security || status=1
+    gitleaks dir . --redact --max-target-megabytes 1 || status=1
+    exit "$status"
+
+# Online advisory checks for lockfiles and identifiable dependencies embedded
+# in Mermaid's shipped ESM distributions. No dependency code is executed.
+dependency-security:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    status=0
+    echo '==> pnpm audit (level: low)'
+    pnpm audit --audit-level low || status=1
+    sbom_dir="$(mktemp -d "${TMPDIR:-/tmp}/marky-sbom-XXXXXXXX")"
+    trap 'rm -rf "$sbom_dir"' EXIT
+    scan_args=(scan source -r . --all-vulns --no-resolve '--no-call-analysis=rust,go')
+    echo '==> bundled dependency SBOM (CycloneDX)'
+    if node scripts/dependency-sbom.mjs "$sbom_dir/bom.cdx.json"; then
+        scan_args+=(--lockfile "$sbom_dir/bom.cdx.json")
+    else
+        status=1
+    fi
+    echo '==> osv-scanner (lockfiles and bundled dependencies)'
+    osv-scanner "${scan_args[@]}" || status=1
+    exit "$status"
