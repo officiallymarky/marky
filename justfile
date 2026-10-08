@@ -50,7 +50,9 @@ dependency-security:
     pnpm audit --audit-level low || status=1
     sbom_dir="$(mktemp -d "${TMPDIR:-/tmp}/marky-sbom-XXXXXXXX")"
     trap 'rm -rf "$sbom_dir"' EXIT
-    scan_args=(scan source -r . --all-vulns --no-resolve '--no-call-analysis=rust,go')
+    # Native ignore files must not hide findings before the scoped policy check.
+    : > "$sbom_dir/osv-scanner.toml"
+    scan_args=(scan source -r . --all-vulns --all-packages --no-resolve '--no-call-analysis=rust,go' --config "$sbom_dir/osv-scanner.toml" --format json --output-file "$sbom_dir/osv.json")
     echo '==> bundled dependency SBOM (CycloneDX)'
     if node scripts/dependency-sbom.mjs "$sbom_dir/bom.cdx.json"; then
         scan_args+=(--lockfile "$sbom_dir/bom.cdx.json")
@@ -58,5 +60,7 @@ dependency-security:
         status=1
     fi
     echo '==> osv-scanner (lockfiles and bundled dependencies)'
-    osv-scanner "${scan_args[@]}" || status=1
+    osv_exit=0
+    osv-scanner "${scan_args[@]}" || osv_exit=$?
+    node scripts/dependency-security.mjs "$sbom_dir/osv.json" "$sbom_dir/bom.cdx.json" "$osv_exit" || status=1
     exit "$status"

@@ -1,0 +1,82 @@
+{
+  "version": 1,
+  "exceptions": [
+    {
+      "id": "RUSTSEC-2024-0429",
+      "name": "glib",
+      "version": "0.18.5",
+      "ecosystem": "crates.io",
+      "source": { "type": "lockfile", "path": "src-tauri/Cargo.lock" },
+      "approvedAt": "2026-10-07T00:00:00.000Z",
+      "expiresAt": "2026-11-06T00:00:00.000Z",
+      "reason": "Owner accepted the residual memory-safety risk temporarily. No affected VariantStrIter/array_iter_str callers were found in marky or inspected dependency sources; this is bounded source evidence, not proof of non-exploitability. Re-review if native usage changes.",
+      "tracking": "https://github.com/officiallymarky/marky/issues/2"
+    },
+    {
+      "id": "RUSTSEC-2024-0370",
+      "name": "proc-macro-error",
+      "version": "1.0.4",
+      "ecosystem": "crates.io",
+      "source": { "type": "lockfile", "path": "src-tauri/Cargo.lock" },
+      "approvedAt": "2026-10-07T00:00:00.000Z",
+      "expiresAt": "2026-11-06T00:00:00.000Z",
+      "reason": "Owner temporarily accepted an unmaintained compile-time GTK/GLib macro helper. This is a maintenance advisory, not a demonstrated runtime exploit; replacement remains required.",
+      "tracking": "https://github.com/officiallymarky/marky/issues/3"
+    },
+    {
+      "id": "GHSA-5p4m-2wfm-xmqj",
+      "name": "js-yaml",
+      "version": "4.3.0",
+      "ecosystem": "npm",
+      "source": { "type": "sbom", "embeddedIn": "mermaid@12.1.0" },
+      "approvedAt": "2026-10-07T00:00:00.000Z",
+      "expiresAt": "2026-11-06T00:00:00.000Z",
+      "reason": "Owner accepted this embedded copy temporarily while waiting for an upstream bundle update. Inspected Mermaid loaders use JSON_SCHEMA, which excludes the affected ordered-map tag. Re-review if YAML schema or loading paths change.",
+      "tracking": "https://github.com/nodeca/js-yaml/security/advisories/GHSA-5p4m-2wfm-xmqj"
+    },
+    {
+      "id": "GHSA-2883-xcg3-v3hh",
+      "name": "js-yaml",
+      "version": "4.3.0",
+      "ecosystem": "npm",
+      "source": { "type": "sbom", "embeddedIn": "mermaid@12.1.0" },
+      "approvedAt": "2026-10-07T00:00:00.000Z",
+      "expiresAt": "2026-11-06T00:00:00.000Z",
+      "reason": "Owner accepted this embedded copy temporarily while waiting for an upstream bundle update. Inspected Mermaid loaders use JSON_SCHEMA, which excludes the affected merge feature. Re-review if YAML schema or loading paths change.",
+      "tracking": "https://github.com/nodeca/js-yaml/security/advisories/GHSA-2883-xcg3-v3hh"
+    },
+    {
+      "id": "GHSA-55q2-fjhq-7xh7",
+      "name": "dompurify",
+      "version": "3.4.12",
+      "ecosystem": "npm",
+      "source": { "type": "sbom", "embeddedIn": "mermaid@12.1.0" },
+      "approvedAt": "2026-10-07T00:00:00.000Z",
+      "expiresAt": "2026-11-06T00:00:00.000Z",
+      "reason": "Owner accepted only this unused standalone Mermaid bundle copy. Marky's active mermaid.core.mjs entrypoint imports the patched external DOMPurify 3.4.16 dependency. Re-review if the entrypoint or rendering imports change.",
+      "tracking": "https://github.com/cure53/DOMPurify/security/advisories/GHSA-55q2-fjhq-7xh7"
+    },
+    {
+      "id": "GHSA-6688-9rhm-gjv2",
+      "name": "dompurify",
+      "version": "3.4.12",
+      "ecosystem": "npm",
+      "source": { "type": "sbom", "embeddedIn": "mermaid@12.1.0" },
+      "approvedAt": "2026-10-07T00:00:00.000Z",
+      "expiresAt": "2026-11-06T00:00:00.000Z",
+      "reason": "Owner accepted only this unused standalone Mermaid bundle copy. Marky's active mermaid.core.mjs entrypoint imports the patched external DOMPurify 3.4.16 dependency. Re-review if the entrypoint or rendering imports change.",
+      "tracking": "https://github.com/cure53/DOMPurify/security/advisories/GHSA-6688-9rhm-gjv2"
+    },
+    {
+      "id": "GHSA-238p-pmpm-9mq7",
+      "name": "katex",
+      "version": "0.16.47",
+      "ecosystem": "npm",
+      "source": { "type": "sbom", "embeddedIn": "mermaid@12.1.0" },
+      "approvedAt": "2026-10-07T00:00:00.000Z",
+      "expiresAt": "2026-11-06T00:00:00.000Z",
+      "reason": "Owner accepted only this unused standalone Mermaid bundle copy. Marky's active rendering chunks import the patched external KaTeX 0.18.2 dependency. Re-review if the entrypoint or math-rendering imports change.",
+      "tracking": "https://github.com/KaTeX/KaTeX/security/advisories/GHSA-238p-pmpm-9mq7"
+    }
+  ]
+}
