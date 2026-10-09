@@ -376,9 +376,13 @@ async function doNew() {
 
 async function doOpen(path?: string) {
   if (!(await confirmDiscard())) return;
+  const session = documentSession;
+  const mode = modeRevision;
   await runOpenFlow({
     open: path ? () => loadDocument(path) : openDocumentDialog,
     replace: replaceDocument,
+    isCurrent: () => documentSession === session && modeRevision === mode,
+    revision: () => session.state.revision + (handle?.revision ?? 0),
     showError,
   });
 }
@@ -499,8 +503,13 @@ async function doSave(saveAs = false): Promise<boolean> {
       if (session !== documentSession) return false;
       // A removed file cannot be reloaded; offer Save As instead.
       if (conflict === "removed") return doSave(true);
+      const revision = documentSession.state.revision + (handle?.revision ?? 0);
       const reloaded = await loadDocument(path);
+      // The read is asynchronous: edits made meanwhile must not be discarded.
       if (session !== documentSession) return false;
+      if (documentSession.state.revision + (handle?.revision ?? 0) !== revision) {
+        return false;
+      }
       await replaceDocument(reloaded);
       return true;
     },
