@@ -89,12 +89,33 @@ impl FileIdentity {
 
 /// On-disk fingerprints of the documents this window has read, so a save can
 /// tell whether another program changed or removed the file in the meantime.
+/// A read only *stages* its fingerprint; `adopt` promotes it once the frontend
+/// actually replaces its buffer with that version.
 #[derive(Default, Clone)]
 struct DocumentIdentities {
     entries: Arc<Mutex<HashMap<String, FileIdentity>>>,
+    pending: Arc<Mutex<HashMap<String, FileIdentity>>>,
 }
 
 impl DocumentIdentities {
+    fn stage(&self, path: &str, identity: FileIdentity) -> Result<(), String> {
+        self.pending
+            .lock()
+            .map_err(|_| "Could not record the document's file identity".to_string())?
+            .insert(path.to_string(), identity);
+        Ok(())
+    }
+
+    /// Promotes the version a read staged, if any. A read whose result the
+    /// frontend discarded (newer edits, another document) never becomes a save
+    /// baseline, so the next save still reports the outside edit.
+    fn adopt(&self, path: &str) {
+        let staged = self.pending.lock().ok().and_then(|mut pending| pending.remove(path));
+        if let (Some(identity), Ok(mut entries)) = (staged, self.entries.lock()) {
+            entries.insert(path.to_string(), identity);
+        }
+    }
+
     fn record(&self, path: &str) {
         let Ok(identity) = FileIdentity::read(Path::new(path)) else {
             return;
@@ -157,11 +178,8 @@ fn read_tracked_document_with(
     let (content, identity) =
         read().map_err(|e| format!("Could not open {}: {e}", file_name_of(path)))?;
     // Do not stat the pathname here: it may now refer to a replacement file.
-    identities
-        .entries
-        .lock()
-        .map_err(|_| "Could not record the document's file identity".to_string())?
-        .insert(path.to_string(), identity);
+    // The fingerprint stays staged until the frontend adopts this version.
+    identities.stage(path, identity)?;
     Ok(Document {
         path: Some(path.to_string()),
         name: file_name_of(path),
@@ -282,6 +300,14 @@ fn load_document(
     path: String,
 ) -> Result<Document, String> {
     read_tracked_document(&state, &path)
+}
+
+/// Records the version the frontend just adopted as this document's save
+/// baseline. A read that was superseded by newer edits must never become the
+/// baseline, or the next save would overwrite the outside version unnoticed.
+#[tauri::command]
+fn adopt_document(state: tauri::State<'_, DocumentIdentities>, path: String) {
+    state.adopt(&path);
 }
 
 /// Reports whether the file still matches the version the app read.
@@ -663,6 +689,7 @@ pub fn run() {
             startup_document,
             open_document,
             load_document,
+            adopt_document,
             check_document,
             save_document,
             recent::refresh_recent_documents,
@@ -1107,6 +1134,10 @@ mod tests {
 
         let identities = DocumentIdentities::default();
         let result = startup_document_from_argument(&identities, Some(&argument));
+        // A read alone must not become the baseline: only the frontend
+        // adopting the version it put in the buffer does that.
+        assert_eq!(document_status(&identities, &argument).status, "untracked");
+        identities.adopt(&argument);
         assert_eq!(document_status(&identities, &argument).status, "unchanged");
         fs::write(&path, "external edit").unwrap();
         assert_eq!(
@@ -1191,6 +1222,7 @@ mod tests {
             Ok(content)
         })
         .unwrap();
+        identities.adopt(&key);
         let status = document_status(&identities, &key).status;
         let save = save_to_path(&identities, &key, "my edit", false).unwrap();
         let disk = fs::read_to_string(&path).unwrap();
@@ -1210,6 +1242,7 @@ mod tests {
         let identities = DocumentIdentities::default();
         let key = path.to_string_lossy().into_owned();
         read_tracked_document(&identities, &key).unwrap();
+        identities.adopt(&key);
         let baseline = identities.expected(&key).unwrap();
 
         let result = read_tracked_document_with(&identities, &key, |file| {
@@ -1252,6 +1285,7 @@ mod tests {
             Ok(content)
         })
         .unwrap();
+        identities.adopt(&key);
         let save = save_to_path(&identities, &key, "my edit", false).unwrap();
         let exists = path.exists();
         fs::remove_dir_all(directory).unwrap();
@@ -1376,5 +1410,28 @@ mod tests {
         assert_eq!(unchanged, "unchanged");
         assert_eq!(changed, "changed");
         assert_eq!(removed, "removed");
+    }
+
+    #[test]
+    fn only_an_adopted_read_becomes_the_save_baseline() {
+        let directory = temporary_directory();
+        let path = directory.join("notes.md");
+        fs::write(&path, "first").unwrap();
+        let identities = DocumentIdentities::default();
+        let key = path.to_string_lossy().into_owned();
+
+        read_tracked_document(&identities, &key).unwrap();
+        assert_eq!(document_status(&identities, &key).status, "untracked");
+        // Adopting a path nobody read must not invent a baseline.
+        identities.adopt(&directory.join("other.md").to_string_lossy());
+        assert_eq!(document_status(&identities, &key).status, "untracked");
+
+        identities.adopt(&key);
+        assert_eq!(document_status(&identities, &key).status, "unchanged");
+        // The staged version is consumed, not left to be adopted twice.
+        fs::write(&path, "outside edit").unwrap();
+        identities.adopt(&key);
+        assert_eq!(document_status(&identities, &key).status, "changed");
+        fs::remove_dir_all(directory).unwrap();
     }
 }

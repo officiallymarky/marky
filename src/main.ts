@@ -12,6 +12,7 @@ import { createEditor, type EditorHandle } from "./editor";
 import type { EditorState } from "@milkdown/kit/prose/state";
 import { DocumentHistory } from "./document-history";
 import {
+  adoptDocument,
   checkDocument,
   loadDocument,
   openDocumentDialog,
@@ -292,6 +293,8 @@ async function replaceDocument(
   };
   const session = documentSession;
   session.state.load(doc.content);
+  // The version this buffer holds becomes the baseline a save compares against.
+  if (!recovered && doc.path) await adoptDocument(doc.path);
   editHistory.clear();
   richSource = null;
   await handle?.destroy();

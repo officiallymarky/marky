@@ -47,6 +47,15 @@ export function loadDocument(path: string): Promise<OpenedDocument> {
   return invoke("load_document", { path });
 }
 
+/**
+ * Records the version the buffer just adopted as this document's save
+ * baseline. Reads only stage a fingerprint, so a read whose result was
+ * discarded cannot make the next save miss an outside edit.
+ */
+export function adoptDocument(path: string): Promise<void> {
+  return invoke("adopt_document", { path });
+}
+
 /** Reports whether the file still matches the version the app read. */
 export function checkDocument(path: string): Promise<DocumentStatus> {
   return invoke("check_document", { path });
