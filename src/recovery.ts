@@ -26,6 +26,11 @@ export interface RecoveryJournal {
   checkpoint(snapshot: RecoveryWrite, dirty: boolean): Promise<void>;
   /** Retires an id synchronously, drains outstanding writes, then removes. */
   discard(id: string): Promise<void>;
+  /**
+   * Re-arms a discarded id after a teardown that failed and left the document
+   * open, persisting its current state under it again.
+   */
+  resume(snapshot: RecoveryWrite, dirty: boolean): Promise<void>;
 }
 
 const DEBOUNCE_MS = 500;
@@ -202,7 +207,17 @@ export function createRecoveryJournal(
     cancelQueued(id);
     return enqueue(id, runRemove(id, false));
   };
+  /**
+   * Puts a retired id back under protection. A teardown can fail after the
+   * document was already retired, and the writing that follows must not be
+   * left without a backup for the rest of the session.
+   */
+  const resume = (snapshot: RecoveryWrite, dirty: boolean): Promise<void> => {
+    retired.delete(snapshot.id);
+    reportedFailures.delete(snapshot.id);
+    return checkpoint(snapshot, dirty);
+  };
 
-  return { schedule, checkpoint, discard };
+  return { schedule, checkpoint, discard, resume };
 
 }

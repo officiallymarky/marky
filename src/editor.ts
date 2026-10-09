@@ -71,6 +71,8 @@ export interface EditorHandle {
   readonly revision: number;
   /** Toggle focus mode: dim every block except the one holding the caret. */
   setFocusMode(on: boolean): void;
+  /** Stop or accept input, for an authorized close that must freeze editing. */
+  setEditable(on: boolean): void;
   focus(): void;
   /** Immutable rich state retained by the document's shared undo timeline. */
   snapshot(): EditorState;
@@ -570,6 +572,12 @@ export async function createEditor(
       }
     },
     breakHistoryGroup: () => view.dispatch(closeHistory(view.state.tr)),
+    setEditable: (on) => {
+      // The prop gates ProseMirror's own input handlers; the attribute is what
+      // stops the browser from editing the content underneath them.
+      view.setProps({ editable: () => on });
+      view.dom.contentEditable = on ? "true" : "false";
+    },
     destroy: async () => {
       document.removeEventListener("selectionchange", updateFocusedBlock);
       spelling.destroy();

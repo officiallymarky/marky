@@ -819,12 +819,38 @@ for (const editor of [rawEditor, frontEditor]) {
   });
 }
 
+/** True while an authorized close is tearing the window down. */
+let closing = false;
+
+/**
+ * Stops or accepts input on every editing surface. A close is authorized at
+ * that point, and anything typed while it runs would be lost without a backup.
+ */
+function setEditingEnabled(enabled: boolean) {
+  handle?.setEditable(enabled);
+  rawEditor.readOnly = !enabled;
+  frontEditor.readOnly = !enabled;
+}
+
 async function destroyWindowSafely(): Promise<void> {
+  if (closing) return;
+  closing = true;
+  setEditingEnabled(false);
   try {
     await recovery.discard(documentSession.recoveryId);
     await appWindow.destroy();
   } catch (error) {
+    // The window stays open, so the document is still live: let it be edited
+    // again and put its crash protection back for the rest of the session.
+    closing = false;
+    setEditingEnabled(true);
     await showError("Could not close safely", error);
+    syncLiveContent();
+    await recovery
+      .resume(recoverySnapshot(), documentSession.state.dirty)
+      .catch((resumeError: unknown) =>
+        showError("Recovery backup failed", resumeError),
+      );
   }
 }
 

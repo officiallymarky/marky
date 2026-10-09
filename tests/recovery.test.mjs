@@ -370,3 +370,56 @@ test("a clean schedule clears a backend snapshot and dedupes afterwards", async 
   await settle();
   assert.deepEqual(removed, [id], "clean ids are removed only once");
 });
+
+test("a discarded id can be put back under protection after a failed teardown", async (t) => {
+  const timers = t.mock.timers;
+  timers.enable({ apis: ["setTimeout"] });
+  const { deps, store, writes, removed, errors } = makeStore();
+  const journal = createRecoveryJournal(deps);
+  const id = "d1";
+
+  await journal.checkpoint(snapshot(id, "draft\n"), true);
+  await journal.discard(id);
+  assert.equal(store.size, 0);
+
+  journal.schedule(snapshot(id, "typed while retired\n"), true);
+  timers.tick(2000);
+  await settle();
+  assert.equal(writes.length, 1, "a retired id schedules nothing");
+
+  // The close failed and the window is still open: protect the document again.
+  await journal.resume(snapshot(id, "typed after the failed close\n"), true);
+  assert.equal(store.get(id)?.content, "typed after the failed close\n");
+
+  journal.schedule(snapshot(id, "more typing\n"), true);
+  timers.tick(500);
+  await settle();
+  assert.equal(store.get(id)?.content, "more typing\n");
+  assert.deepEqual(removed, [id], "the snapshot is not removed twice");
+  assert.deepEqual(errors, []);
+});
+
+test("resuming after a failed discard retries the removal or rewrites", async (t) => {
+  const timers = t.mock.timers;
+  timers.enable({ apis: ["setTimeout"] });
+  const { deps, store, removed, errors, failNextRemove } = makeStore();
+  const journal = createRecoveryJournal(deps);
+  const id = "d1";
+  await journal.checkpoint(snapshot(id, "draft\n"), true);
+
+  failNextRemove();
+  await assert.rejects(journal.discard(id), /recovery remove failed/);
+  assert.equal(store.get(id)?.content, "draft\n", "the snapshot survived");
+
+  await journal.resume(snapshot(id, "still writing\n"), true);
+  assert.equal(store.get(id)?.content, "still writing\n");
+  assert.deepEqual(removed, [id], "only the failed removal was attempted");
+  assert.deepEqual(errors, []);
+
+  // A clean resume clears the snapshot instead of rewriting it.
+  await journal.discard(id);
+  assert.equal(store.size, 0);
+  await journal.resume(snapshot(id, "clean\n"), false);
+  assert.deepEqual(removed, [id, id], "a clean resume removes, never writes");
+  assert.equal(store.size, 0);
+});
