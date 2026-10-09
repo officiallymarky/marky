@@ -7,10 +7,11 @@ export interface SplitDocument {
 
 /**
  * Splits a leading YAML front-matter block (`---` … `---`) off the document.
- * The block is kept byte-exact so YAML is never reformatted.
+ * The block is kept byte-exact so YAML is never reformatted, and it may be
+ * empty: `---` immediately followed by the closing fence.
  */
 export function splitFrontmatter(md: string): SplitDocument {
-  const match = /^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/.exec(md);
+  const match = /^---\r?\n(?:[\s\S]*?\r?\n)??---(?:\r?\n|$)/.exec(md);
   if (!match) return { front: null, body: md };
   return { front: match[0], body: md.slice(match[0].length) };
 }
