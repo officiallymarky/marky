@@ -116,10 +116,8 @@ impl DocumentIdentities {
         }
     }
 
-    fn record(&self, path: &str) {
-        let Ok(identity) = FileIdentity::read(Path::new(path)) else {
-            return;
-        };
+    /// Records the identity of the bytes this window last stored at `path`.
+    fn remember(&self, path: &str, identity: FileIdentity) {
         if let Ok(mut entries) = self.entries.lock() {
             entries.insert(path.to_string(), identity);
         }
@@ -218,8 +216,8 @@ fn save_to_path(
     if let Some(conflict) = save_conflict(identities, path, force) {
         return Ok(Some(conflict));
     }
-    atomic_write(Path::new(path), content)?;
-    identities.record(path);
+    let identity = atomic_write(Path::new(path), content)?;
+    identities.remember(path, identity);
     Ok(None)
 }
 
@@ -345,10 +343,13 @@ fn write_extended_attributes(
     Ok(())
 }
 
-fn write_in_place(path: &Path, content: &str) -> io::Result<()> {
+/// Writes in place (the file cannot be replaced) and reports the identity of
+/// the bytes stored, read from the open descriptor.
+fn write_in_place(path: &Path, content: &str) -> io::Result<FileIdentity> {
     let mut file = OpenOptions::new().write(true).truncate(true).open(path)?;
     file.write_all(content.as_bytes())?;
-    file.sync_all()
+    file.sync_all()?;
+    Ok(FileIdentity::from_metadata(&file.metadata()?))
 }
 
 fn canonicalize_for_write(path: &Path) -> io::Result<PathBuf> {
@@ -382,7 +383,10 @@ fn canonicalize_for_write(path: &Path) -> io::Result<PathBuf> {
     }
 }
 
-fn atomic_write(path: &Path, content: &str) -> io::Result<()> {
+/// Replaces `path` with `content` and reports the identity of the stored
+/// bytes. That identity comes from the written descriptor, never from a later
+/// stat of the pathname, which another writer may already have replaced.
+fn atomic_write(path: &Path, content: &str) -> io::Result<FileIdentity> {
     let write_path = match fs::symlink_metadata(path) {
         Ok(metadata) if metadata.file_type().is_symlink() => canonicalize_for_write(path)?,
         Ok(_) => path.to_path_buf(),
@@ -506,16 +510,27 @@ fn atomic_write(path: &Path, content: &str) -> io::Result<()> {
                 return write_in_place(&write_path, content);
             }
         }
-        let sync_result = file.sync_all();
+        if let Err(error) = file.sync_all() {
+            drop(file);
+            let _ = fs::remove_file(&temp_path);
+            return Err(error);
+        }
+        let identity = match file.metadata() {
+            Ok(metadata) => FileIdentity::from_metadata(&metadata),
+            Err(error) => {
+                drop(file);
+                let _ = fs::remove_file(&temp_path);
+                return Err(error);
+            }
+        };
         drop(file);
 
-        let result = sync_result
-            .and_then(|()| fs::rename(&temp_path, &write_path))
-            .and_then(|()| sync_directory(parent));
-        if result.is_err() {
+        if let Err(error) = fs::rename(&temp_path, &write_path) {
             let _ = fs::remove_file(&temp_path);
+            return Err(error);
         }
-        return result;
+        sync_directory(parent)?;
+        return Ok(identity);
     }
 
     Err(io::Error::new(
@@ -939,7 +954,7 @@ mod tests {
     use super::{
         atomic_write, document_status, read_tracked_document, read_tracked_document_with,
         save_to_path, startup_document_from_argument, sync_directory, ConflictKind,
-        DocumentIdentities,
+        DocumentIdentities, FileIdentity,
     };
     use std::fs;
     use std::io::Read;
@@ -954,6 +969,11 @@ mod tests {
             std::env::temp_dir().join(format!("marky-atomic-save-{}-{nonce}", std::process::id()));
         fs::create_dir(&path).unwrap();
         path
+    }
+
+    /// Stands in for the frontend adopting the version it just put in a buffer.
+    fn track(identities: &DocumentIdentities, path: &str) {
+        identities.remember(path, FileIdentity::read(std::path::Path::new(path)).unwrap());
     }
 
     #[test]
@@ -1092,10 +1112,12 @@ mod tests {
 
         let result = atomic_write(&path, "new content");
         let alias_contents = fs::read_to_string(&alias).unwrap();
+        let reported = result.unwrap();
+        let on_disk = FileIdentity::read(&path).unwrap();
         fs::remove_dir_all(directory).unwrap();
 
-        result.unwrap();
         assert_eq!(alias_contents, "new content");
+        assert_eq!(reported, on_disk, "an in-place write reports what it stored");
     }
 
     #[cfg(unix)]
@@ -1302,7 +1324,7 @@ mod tests {
         fs::write(&path, "first").unwrap();
         let identities = DocumentIdentities::default();
         let key = path.to_string_lossy().into_owned();
-        identities.record(&key);
+        track(&identities, &key);
 
         let result = save_to_path(&identities, &key, "second", false);
         let contents = fs::read_to_string(&path).unwrap();
@@ -1319,7 +1341,7 @@ mod tests {
         fs::write(&path, "first").unwrap();
         let identities = DocumentIdentities::default();
         let key = path.to_string_lossy().into_owned();
-        identities.record(&key);
+        track(&identities, &key);
 
         fs::write(&path, "someone else's longer version").unwrap();
         let result = save_to_path(&identities, &key, "mine", false);
@@ -1337,7 +1359,7 @@ mod tests {
         fs::write(&path, "first").unwrap();
         let identities = DocumentIdentities::default();
         let key = path.to_string_lossy().into_owned();
-        identities.record(&key);
+        track(&identities, &key);
 
         fs::write(&path, "someone else's longer version").unwrap();
         let forced = save_to_path(&identities, &key, "mine", true);
@@ -1361,7 +1383,7 @@ mod tests {
         fs::write(&path, "first").unwrap();
         let identities = DocumentIdentities::default();
         let key = path.to_string_lossy().into_owned();
-        identities.record(&key);
+        track(&identities, &key);
         fs::remove_file(&path).unwrap();
 
         let result = save_to_path(&identities, &key, "recreated", false);
@@ -1398,7 +1420,7 @@ mod tests {
         let key = path.to_string_lossy().into_owned();
 
         let untracked = document_status(&identities, &key).status;
-        identities.record(&key);
+        track(&identities, &key);
         let unchanged = document_status(&identities, &key).status;
         fs::write(&path, "second, longer").unwrap();
         let changed = document_status(&identities, &key).status;
@@ -1433,5 +1455,26 @@ mod tests {
         identities.adopt(&key);
         assert_eq!(document_status(&identities, &key).status, "changed");
         fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn a_write_reports_the_identity_of_the_bytes_it_stored() {
+        let directory = temporary_directory();
+        let path = directory.join("notes.md");
+        fs::write(&path, "old content").unwrap();
+        let identities = DocumentIdentities::default();
+        let key = path.to_string_lossy().into_owned();
+
+        let reported = atomic_write(&path, "new content").unwrap();
+        let on_disk = FileIdentity::read(&path).unwrap();
+        // The baseline a save records must describe the file it just wrote,
+        // not whatever a later stat of the pathname happens to find.
+        save_to_path(&identities, &key, "third content", false).unwrap();
+        let baseline = identities.expected(&key).unwrap();
+        let saved = FileIdentity::read(&path).unwrap();
+        fs::remove_dir_all(directory).unwrap();
+
+        assert_eq!(reported, on_disk, "the writer must report what it stored");
+        assert_eq!(baseline, saved, "the baseline must describe the saved file");
     }
 }

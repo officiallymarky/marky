@@ -41,7 +41,7 @@ impl Geometry {
 
     fn save(&self, path: &Path) -> io::Result<()> {
         let content = serde_json::to_string(self).map_err(io::Error::other)?;
-        super::atomic_write(path, &content)
+        super::atomic_write(path, &content).map(|_| ())
     }
 
     fn capture(window: &WebviewWindow) -> tauri::Result<Self> {
