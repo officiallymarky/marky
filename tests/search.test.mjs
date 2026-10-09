@@ -371,3 +371,20 @@ test("next and prev wrap around the surviving matches", () => {
   assert.deepEqual(selection(h.editor), [0, 1]); // wrapped backward
   assert.equal(h.errors.length, 0);
 });
+
+test("adjacent matches stay individually reachable and replaceable", () => {
+  const h = harness();
+  h.editor.value = "hello";
+  h.search("l", "L");
+  assert.deepEqual(selection(h.editor), [2, 3]);
+  assert.equal(h.count(), "1 of 2");
+
+  // The second "l" starts where the first ends.
+  h.next();
+  assert.deepEqual(selection(h.editor), [3, 4]);
+  assert.equal(h.count(), "2 of 2");
+
+  h.replaceOne();
+  assert.equal(h.editor.value, "helLo");
+  assert.equal(h.errors.length, 0);
+});

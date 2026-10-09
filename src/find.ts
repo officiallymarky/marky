@@ -93,15 +93,17 @@ export function computeMatches(
 }
 
 /**
- * Index of the match containing `from` (end-inclusive), else the last match
- * starting before it, else -1.
+ * Index of the match containing `from`, else the last match starting before
+ * it, else -1. Ranges are half-open (`from` ≤ position < `to`): one match's
+ * end is the next match's start, so a position that begins an adjacent match
+ * belongs to that match, not to the one it ends.
  */
 export function locateMatch(matches: readonly MatchRange[], from: number | null): number {
   if (from === null) return -1;
   let lastBefore = -1;
   for (let i = 0; i < matches.length; i++) {
     const m = matches[i];
-    if (m.from <= from && from <= m.to) return i;
+    if (m.from <= from && from < m.to) return i;
     if (m.from < from) lastBefore = i;
     if (m.from > from) break;
   }

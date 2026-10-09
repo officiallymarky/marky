@@ -91,6 +91,38 @@ test("locateMatch tracks containment and the nearest earlier match", () => {
   assert.equal(nextMatchFrom([], 0), -1);
 });
 
+test("locateMatch resolves adjacent matches to the later one", () => {
+  // "aaaaaa" as "aa": a match start is also the previous match's end.
+  const matches = findTextMatches("aaaaaa", "aa", true);
+  assert.deepEqual(matches, [
+    { from: 0, to: 2 },
+    { from: 2, to: 4 },
+    { from: 4, to: 6 },
+  ]);
+  assert.equal(locateMatch(matches, 0), 0);
+  assert.equal(locateMatch(matches, 2), 1);
+  assert.equal(locateMatch(matches, 4), 2);
+  // A position at the last match's end still resolves to that match.
+  assert.equal(locateMatch(matches, 6), 2);
+  // A single-character needle repeats adjacently just as often.
+  const single = findTextMatches("hello", "l", true);
+  assert.deepEqual(single, [
+    { from: 2, to: 3 },
+    { from: 3, to: 4 },
+  ]);
+  assert.equal(locateMatch(single, 2), 0);
+  assert.equal(locateMatch(single, 3), 1);
+});
+
+test("replaceCurrentTr replaces the adjacent match the search navigated to", () => {
+  // "hello": one step past the first "l" tracks the second one (doc offset 4).
+  const state = plain("hello");
+  const query = { needle: "l", caseSensitive: true };
+  const res = replaceCurrentTr(state, query, 4, "L");
+  assert.ok(res);
+  assert.equal(state.apply(res.tr).doc.textContent, "helLo");
+});
+
 test("replaceCurrentTr replaces the tracked match, keeping marks", () => {
   const bold = paragraphWith([
     schema.text("say "),
