@@ -3,6 +3,8 @@ import { test } from "node:test";
 import { getDocumentTitle, splitFrontmatter } from "../src/frontmatter.ts";
 import {
   buildFrontMatterBlock,
+  formatListInput,
+  parseListInput,
   readKnownFields,
   todayIsoDate,
   updateFrontMatterBlock,
@@ -228,4 +230,42 @@ test("title-only updates preserve supported list values with spaces, commas and 
 
 test("today is a plain ISO date", () => {
   assert.match(todayIsoDate(), /^\d{4}-\d{2}-\d{2}$/);
+});
+
+test("dialog list fields round-trip every item shape", () => {
+  for (const items of [
+    [],
+    ["work", "personal"],
+    ["personal, notes", "work"],
+    ['say "hi"', "back\\slash"],
+    [" spaced ", ""],
+    ["one"],
+  ]) {
+    assert.deepEqual(
+      parseListInput(formatListInput(items)),
+      items,
+      JSON.stringify(items),
+    );
+  }
+});
+
+test("dialog list fields keep plain comma-separated input working", () => {
+  assert.deepEqual(parseListInput("notes, project"), ["notes", "project"]);
+  assert.deepEqual(parseListInput(" a ,, b ,"), ["a", "b"]);
+  assert.deepEqual(parseListInput(""), []);
+  assert.deepEqual(parseListInput('unbalanced " quote'), ['unbalanced " quote']);
+});
+
+test("editing another field never splits an item containing a comma", () => {
+  const front = '---\ntitle: Old\ntags: ["personal, notes", work]\n---\n\n';
+  const read = readKnownFields(front);
+  assert.deepEqual(read.prefill.tags, ["personal, notes", "work"]);
+  assert.equal(
+    updateFrontMatterBlock(front, {
+      ...read.prefill,
+      title: "New",
+      tags: parseListInput(formatListInput(read.prefill.tags)),
+    }),
+    '---\ntitle: New\ntags: ["personal, notes", "work"]\n---\n\n',
+  );
 });

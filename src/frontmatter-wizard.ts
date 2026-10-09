@@ -294,11 +294,56 @@ function buildWizardDom(): {
   };
 }
 
-function splitList(value: string): string[] {
-  return value
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
+/**
+ * Renders a list into the dialog's comma-separated field. Items that a plain
+ * split would not survive — commas, quotes, surrounding whitespace, empties —
+ * are JSON-quoted so `parseListInput` reads them back exactly.
+ */
+export function formatListInput(items: string[]): string {
+  return items
+    .map((item) => (!item || /[",]|^\s|\s$/.test(item) ? JSON.stringify(item) : item))
+    .join(", ");
+}
+
+/**
+ * Reads the dialog's comma-separated field. Quoted items keep their commas,
+ * quotes and whitespace; unquoted segments are trimmed and empty ones dropped.
+ * Malformed quoting is taken literally rather than losing the text.
+ */
+export function parseListInput(value: string): string[] {
+  const items: string[] = [];
+  let index = 0;
+  while (index < value.length) {
+    while (index < value.length && (value[index] === " " || value[index] === "\t")) {
+      index += 1;
+    }
+    if (index >= value.length) break;
+    if (value[index] === '"') {
+      let end = index + 1;
+      while (end < value.length && value[end] !== '"') {
+        end += value[end] === "\\" ? 2 : 1;
+      }
+      const literal = value.slice(index, Math.min(end + 1, value.length));
+      try {
+        const parsed: unknown = JSON.parse(literal);
+        if (typeof parsed === "string") {
+          items.push(parsed);
+          index = end + 1;
+          continue;
+        }
+      } catch {
+        // Not a JSON string: keep the text as written.
+      }
+      items.push(literal.trim());
+      index += literal.length;
+      continue;
+    }
+    const comma = value.indexOf(",", index);
+    const plain = value.slice(index, comma < 0 ? value.length : comma).trim();
+    if (plain) items.push(plain);
+    index = (comma < 0 ? value.length : comma) + 1;
+  }
+  return items;
 }
 
 const open = createModal<FrontMatterFields, WizardElements>(() => {
@@ -309,8 +354,8 @@ const open = createModal<FrontMatterFields, WizardElements>(() => {
     readValue: () => ({
       title: fields.title.value,
       date: fields.includeDate.checked ? fields.date.value : null,
-      tags: splitList(fields.tags.value),
-      aliases: splitList(fields.aliases.value),
+      tags: parseListInput(fields.tags.value),
+      aliases: parseListInput(fields.aliases.value),
       status: fields.status.value,
     }),
   };
@@ -328,8 +373,8 @@ export function openFrontMatterWizard(
     fields.title.value = defaults.title ?? "";
     fields.includeDate.checked = defaults.date != null;
     fields.date.value = defaults.date ?? todayIsoDate();
-    fields.tags.value = defaults.tags?.join(", ") ?? "";
-    fields.aliases.value = defaults.aliases?.join(", ") ?? "";
+    fields.tags.value = formatListInput(defaults.tags ?? []);
+    fields.aliases.value = formatListInput(defaults.aliases ?? []);
     fields.status.value = defaults.status ?? "";
     fields.primary.textContent = options.submitLabel ?? "Insert";
   });
