@@ -54,13 +54,9 @@ import {
   toggleStrikethroughCommand,
 } from "@milkdown/kit/preset/gfm";
 import { createSelectionToolbar } from "./toolbar";
-import {
-  ALERT_TEXT,
-  parseAlertMarker,
-  restoreAlertMarkers,
-  type AlertKind,
-} from "./alerts";
-import { nextFootnoteIndex, restoreFootnoteRefs } from "./footnote";
+import { ALERT_TEXT, parseAlertMarker, type AlertKind } from "./alerts";
+import { nextFootnoteIndex } from "./footnote";
+import { restoreMarkdownMarkers } from "./markdown-markers";
 import { createFindApi, findPlugin, type FindHandle } from "./find";
 import { createSpellCheck, spellPlugin, type SpellCheckHandle } from "./harper";
 import { codeBlockTabKeymap } from "./code-block-tab";
@@ -202,9 +198,7 @@ export async function createEditor(
       ctx.get(listenerCtx).updated((current, doc) => {
         // A queued callback from before a mode switch/undo cannot adopt old text.
         if (!current.get(editorViewCtx).state.doc.eq(doc)) return;
-        onUpdate(
-          restoreFootnoteRefs(restoreAlertMarkers(current.get(serializerCtx)(doc))),
-        );
+        onUpdate(restoreMarkdownMarkers(current.get(serializerCtx)(doc)));
       });
       ctx.update(prismConfig.key, (opts) => {
         opts.configureRefractor = (refractor) => {
@@ -530,8 +524,7 @@ export async function createEditor(
     get revision() {
       return revision;
     },
-    getMarkdown: () =>
-      restoreFootnoteRefs(restoreAlertMarkers(editor.action(getMarkdown()))),
+    getMarkdown: () => restoreMarkdownMarkers(editor.action(getMarkdown())),
     insert,
     search: find,
     spelling,
