@@ -147,7 +147,13 @@ export function readKnownFields(front: string): ReadFrontMatter {
     if (presence.complex) supported = false;
     if (presence.line < 0) return "";
     const value = lines[presence.line].replace(/^(?:[^:]*):/, "").trim();
-    return parseScalar(value) ?? "";
+    if (!value || value.startsWith("#")) return "";
+    const parsed = parseScalar(value);
+    // A nonempty value the reader cannot turn into a plain string — anchors,
+    // tags, flow collections, quoted empties — would be dropped by the
+    // rewrite, so it blocks the dialog instead.
+    if (parsed === null) supported = false;
+    return parsed ?? "";
   };
   const readList = (key: string): string[] => {
     const presence = keyLine(lines, key);

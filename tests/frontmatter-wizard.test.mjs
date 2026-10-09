@@ -96,6 +96,40 @@ test("multi-line known values are reported unsupported", () => {
   assert.equal(supported, false);
 });
 
+test("scalar values the dialog cannot read block the rewrite", () => {
+  for (const value of [
+    "!!str Example", // explicit tag
+    "&anchor text", // anchor
+    "*alias", // alias reference
+    "[a, b]", // flow sequence
+    "{a: b}", // flow mapping
+    "42", // number
+    "true", // boolean
+    "~", // null
+    '""', // quoted empty string
+  ]) {
+    const front = `---\ntitle: ${value}\nstatus: draft\n---\n\n`;
+    const read = readKnownFields(front);
+    assert.equal(read.supported, false, `expected ${value} to be unsupported`);
+    // The refused update leaves the block untouched.
+    assert.equal(
+      updateFrontMatterBlock(front, { ...read.prefill, status: "review" }),
+      null,
+    );
+  }
+});
+
+test("plain and quoted scalar values stay editable", () => {
+  const front = '---\ntitle: "My: note"\nstatus: review\n---\n\n';
+  const read = readKnownFields(front);
+  assert.equal(read.supported, true);
+  assert.equal(read.prefill.title, "My: note");
+  assert.equal(
+    updateFrontMatterBlock(front, { ...read.prefill, status: "done" }),
+    '---\ntitle: "My: note"\nstatus: done\n---\n\n',
+  );
+});
+
 test("updating rewrites known keys and preserves unknown ones byte-exact", () => {
   const front =
     '---\ntitle: Old\ntags: [old]\ncustom: keep me\ndate: 2026-01-01\n---\n\n';
