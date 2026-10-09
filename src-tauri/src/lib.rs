@@ -216,9 +216,19 @@ fn save_to_path(
     if let Some(conflict) = save_conflict(identities, path, force) {
         return Ok(Some(conflict));
     }
-    let identity = atomic_write(Path::new(path), content)?;
-    identities.remember(path, identity);
-    Ok(None)
+    match atomic_write(Path::new(path), content) {
+        Ok(identity) => {
+            identities.remember(path, identity);
+            Ok(None)
+        }
+        // The file already holds the new content: keep the baseline in step
+        // with it, so retrying does not report a conflict with our own write.
+        Err(WriteFailure::Committed(error, identity)) => {
+            identities.remember(path, identity);
+            Err(error)
+        }
+        Err(WriteFailure::Uncommitted(error)) => Err(error),
+    }
 }
 
 fn document_status(identities: &DocumentIdentities, path: &str) -> DocumentStatus {
@@ -343,13 +353,43 @@ fn write_extended_attributes(
     Ok(())
 }
 
+/// How a failed write left the file. The caller only needs to know whether the
+/// replacement is already committed, so it can keep the save baseline in step
+/// with what is on disk while still reporting the failure.
+#[derive(Debug)]
+enum WriteFailure {
+    /// The failure happened before the replacement was committed; the file may
+    /// hold neither version, so no new baseline may be recorded for it.
+    Uncommitted(io::Error),
+    /// The file holds the new content; the error is only about whether its
+    /// directory entry survives a crash. The identity describes those bytes.
+    Committed(io::Error, FileIdentity),
+}
+
+impl From<io::Error> for WriteFailure {
+    fn from(error: io::Error) -> Self {
+        WriteFailure::Uncommitted(error)
+    }
+}
+
+impl WriteFailure {
+    fn into_io(self) -> io::Error {
+        match self {
+            WriteFailure::Uncommitted(error) | WriteFailure::Committed(error, _) => error,
+        }
+    }
+}
+
 /// Writes in place (the file cannot be replaced) and reports the identity of
 /// the bytes stored, read from the open descriptor.
-fn write_in_place(path: &Path, content: &str) -> io::Result<FileIdentity> {
+fn write_in_place(path: &Path, content: &str) -> Result<FileIdentity, WriteFailure> {
     let mut file = OpenOptions::new().write(true).truncate(true).open(path)?;
     file.write_all(content.as_bytes())?;
-    file.sync_all()?;
-    Ok(FileIdentity::from_metadata(&file.metadata()?))
+    let identity = FileIdentity::from_metadata(&file.metadata()?);
+    match file.sync_all() {
+        Ok(()) => Ok(identity),
+        Err(error) => Err(WriteFailure::Committed(error, identity)),
+    }
 }
 
 fn canonicalize_for_write(path: &Path) -> io::Result<PathBuf> {
@@ -386,37 +426,37 @@ fn canonicalize_for_write(path: &Path) -> io::Result<PathBuf> {
 /// Replaces `path` with `content` and reports the identity of the stored
 /// bytes. That identity comes from the written descriptor, never from a later
 /// stat of the pathname, which another writer may already have replaced.
-fn atomic_write(path: &Path, content: &str) -> io::Result<FileIdentity> {
+fn atomic_write(path: &Path, content: &str) -> Result<FileIdentity, WriteFailure> {
     let write_path = match fs::symlink_metadata(path) {
         Ok(metadata) if metadata.file_type().is_symlink() => canonicalize_for_write(path)?,
         Ok(_) => path.to_path_buf(),
         Err(error) if error.kind() == io::ErrorKind::NotFound => path.to_path_buf(),
-        Err(error) => return Err(error),
+        Err(error) => return Err(WriteFailure::Uncommitted(error)),
     };
     let parent = write_path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
     if write_path.file_name().is_none() {
-        return Err(io::Error::new(
+        return Err(WriteFailure::Uncommitted(io::Error::new(
             io::ErrorKind::InvalidInput,
             "save path has no file name",
-        ));
+        )));
     }
     let metadata = match fs::metadata(&write_path) {
         Ok(metadata) => Some(metadata),
         Err(error) if error.kind() == io::ErrorKind::NotFound => None,
-        Err(error) => return Err(error),
+        Err(error) => return Err(WriteFailure::Uncommitted(error)),
     };
 
     if metadata
         .as_ref()
         .is_some_and(|metadata| metadata.permissions().readonly())
     {
-        return Err(io::Error::new(
+        return Err(WriteFailure::Uncommitted(io::Error::new(
             io::ErrorKind::PermissionDenied,
             "cannot overwrite a read-only file",
-        ));
+        )));
     }
 
     #[cfg(unix)]
@@ -466,7 +506,7 @@ fn atomic_write(path: &Path, content: &str) -> io::Result<FileIdentity> {
         let mut file = match options.open(&temp_path) {
             Ok(file) => file,
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
-            Err(error) => return Err(error),
+            Err(error) => return Err(WriteFailure::Uncommitted(error)),
         };
 
         #[cfg(unix)]
@@ -476,7 +516,7 @@ fn atomic_write(path: &Path, content: &str) -> io::Result<FileIdentity> {
                 Err(error) => {
                     drop(file);
                     let _ = fs::remove_file(&temp_path);
-                    return Err(error);
+                    return Err(WriteFailure::Uncommitted(error));
                 }
             };
             if existing_metadata.uid() != temporary_metadata.uid()
@@ -491,7 +531,7 @@ fn atomic_write(path: &Path, content: &str) -> io::Result<FileIdentity> {
         if let Err(error) = file.write_all(content.as_bytes()) {
             drop(file);
             let _ = fs::remove_file(&temp_path);
-            return Err(error);
+            return Err(WriteFailure::Uncommitted(error));
         }
 
         #[cfg(unix)]
@@ -513,30 +553,34 @@ fn atomic_write(path: &Path, content: &str) -> io::Result<FileIdentity> {
         if let Err(error) = file.sync_all() {
             drop(file);
             let _ = fs::remove_file(&temp_path);
-            return Err(error);
+            return Err(WriteFailure::Uncommitted(error));
         }
         let identity = match file.metadata() {
             Ok(metadata) => FileIdentity::from_metadata(&metadata),
             Err(error) => {
                 drop(file);
                 let _ = fs::remove_file(&temp_path);
-                return Err(error);
+                return Err(WriteFailure::Uncommitted(error));
             }
         };
         drop(file);
 
         if let Err(error) = fs::rename(&temp_path, &write_path) {
             let _ = fs::remove_file(&temp_path);
-            return Err(error);
+            return Err(WriteFailure::Uncommitted(error));
         }
-        sync_directory(parent)?;
+        // The replacement is already committed: only its durability is in
+        // doubt, so the caller still records the identity it reports here.
+        if let Err(error) = sync_directory(parent) {
+            return Err(WriteFailure::Committed(error, identity));
+        }
         return Ok(identity);
     }
 
-    Err(io::Error::new(
+    Err(WriteFailure::Uncommitted(io::Error::new(
         io::ErrorKind::AlreadyExists,
         "could not reserve a temporary save file",
-    ))
+    )))
 }
 
 /// Sync the directory entry so a completed rename survives power loss.
@@ -1095,7 +1139,7 @@ mod tests {
         fs::remove_dir_all(directory).unwrap();
 
         assert_eq!(
-            result.unwrap_err().kind(),
+            result.unwrap_err().into_io().kind(),
             std::io::ErrorKind::PermissionDenied
         );
         assert_eq!(contents, "old content");
@@ -1476,5 +1520,44 @@ mod tests {
 
         assert_eq!(reported, on_disk, "the writer must report what it stored");
         assert_eq!(baseline, saved, "the baseline must describe the saved file");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_durability_failure_still_records_the_written_identity() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = temporary_directory();
+        let path = directory.join("notes.md");
+        fs::write(&path, "old content").unwrap();
+        let identities = DocumentIdentities::default();
+        let key = path.to_string_lossy().into_owned();
+        track(&identities, &key);
+
+        // Write and execute but no read: the rename succeeds, opening the
+        // directory for its durability sync does not.
+        let mode = directory.metadata().unwrap().permissions().mode();
+        fs::set_permissions(&directory, fs::Permissions::from_mode(0o300)).unwrap();
+        let result = save_to_path(&identities, &key, "new content", false);
+        fs::set_permissions(&directory, fs::Permissions::from_mode(mode)).unwrap();
+
+        let contents = fs::read_to_string(&path).unwrap();
+        let baseline = identities.expected(&key);
+        let saved = FileIdentity::read(&path).unwrap();
+        fs::remove_dir_all(directory).unwrap();
+
+        assert_eq!(contents, "new content", "the write still reached the file");
+        // A privileged user can open a write-only directory, leaving no
+        // durability failure to exercise.
+        let Err(error) = result else {
+            assert_eq!(baseline, Some(saved));
+            return;
+        };
+        assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+        assert_eq!(
+            baseline,
+            Some(saved),
+            "the baseline must describe the file the save left behind"
+        );
     }
 }
