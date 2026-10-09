@@ -284,6 +284,11 @@ async function replaceDocument(
 ) {
   const previous = documentSession;
   documentReady = false;
+  // The version this buffer is about to hold becomes the baseline a save
+  // compares against, and it must be in place before the document becomes
+  // current: a save issued while the editor is rebuilt would otherwise write
+  // without a conflict check.
+  if (!recovered && doc.path) await adoptDocument(doc.path);
   documentSession = {
     path: recovered ? null : doc.path,
     name: doc.name,
@@ -293,8 +298,6 @@ async function replaceDocument(
   };
   const session = documentSession;
   session.state.load(doc.content);
-  // The version this buffer holds becomes the baseline a save compares against.
-  if (!recovered && doc.path) await adoptDocument(doc.path);
   editHistory.clear();
   richSource = null;
   await handle?.destroy();
