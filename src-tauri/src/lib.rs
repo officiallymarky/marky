@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::fs::{self, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -205,6 +205,18 @@ fn save_conflict(identities: &DocumentIdentities, path: &str, force: bool) -> Op
     detect_conflict(&expected, Path::new(path))
 }
 
+/// Holds an exclusive advisory lock on the document that is about to be checked
+/// and written, so two instances cannot both pass the conflict check and then
+/// overwrite each other's save. The destination file itself is locked: aliases
+/// and symlinks resolve to the same inode, so no lock files are left beside the
+/// user's documents. A file that is absent (a first save) or that cannot be
+/// locked has no version to protect, and the save proceeds without a lock.
+fn lock_destination(path: &Path) -> Option<File> {
+    let file = OpenOptions::new().read(true).open(path).ok()?;
+    file.lock().ok()?;
+    Some(file)
+}
+
 /// Writes `content` unless the file changed on disk since it was read, in
 /// which case nothing is written and the conflict is returned for the UI.
 fn save_to_path(
@@ -213,6 +225,9 @@ fn save_to_path(
     content: &str,
     force: bool,
 ) -> io::Result<Option<ConflictKind>> {
+    // Held until this save finishes, so the check and the write cannot
+    // interleave with another instance saving the same document.
+    let _guard = lock_destination(Path::new(path));
     if let Some(conflict) = save_conflict(identities, path, force) {
         return Ok(Some(conflict));
     }
@@ -996,9 +1011,9 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        atomic_write, document_status, read_tracked_document, read_tracked_document_with,
-        save_to_path, startup_document_from_argument, sync_directory, ConflictKind,
-        DocumentIdentities, FileIdentity,
+        atomic_write, document_status, lock_destination, read_tracked_document,
+        read_tracked_document_with, save_to_path, startup_document_from_argument, sync_directory,
+        ConflictKind, DocumentIdentities, FileIdentity,
     };
     use std::fs;
     use std::io::Read;
@@ -1559,5 +1574,63 @@ mod tests {
             Some(saved),
             "the baseline must describe the file the save left behind"
         );
+    }
+
+    #[test]
+    fn an_absent_document_has_no_lock_to_take() {
+        let directory = temporary_directory();
+        let lock = lock_destination(&directory.join("absent.md"));
+        fs::remove_dir_all(directory).unwrap();
+
+        assert!(lock.is_none(), "a first save has no version to protect");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_held_lock_is_refused_and_released_on_drop() {
+        let directory = temporary_directory();
+        let path = directory.join("notes.md");
+        fs::write(&path, "content").unwrap();
+
+        let held = lock_destination(&path).expect("an existing file can be locked");
+        let second = fs::OpenOptions::new().read(true).open(&path).unwrap();
+        let refused = second.try_lock().is_err();
+        drop(held);
+        let granted = second.try_lock().is_ok();
+        fs::remove_dir_all(directory).unwrap();
+
+        assert!(refused, "a second holder must not take the same lock");
+        assert!(granted, "dropping the guard must release the lock");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_save_waits_for_the_instance_that_holds_the_lock() {
+        let directory = temporary_directory();
+        let path = directory.join("notes.md");
+        fs::write(&path, "content").unwrap();
+        let identities = DocumentIdentities::default();
+        let key = path.to_string_lossy().into_owned();
+        track(&identities, &key);
+
+        let held = lock_destination(&path).expect("the destination can be locked");
+        let (done, finished) = std::sync::mpsc::channel();
+        let saving = std::thread::spawn(move || {
+            done.send(save_to_path(&identities, &key, "edit", false).is_ok())
+                .unwrap();
+        });
+
+        let waited = finished
+            .recv_timeout(std::time::Duration::from_millis(150))
+            .is_err();
+        drop(held);
+        let saved = finished.recv_timeout(std::time::Duration::from_secs(5));
+        saving.join().unwrap();
+        let contents = fs::read_to_string(&path).unwrap();
+        fs::remove_dir_all(directory).unwrap();
+
+        assert!(waited, "a save must wait for the instance already writing");
+        assert!(saved.unwrap(), "the waiting save must still succeed");
+        assert_eq!(contents, "edit");
     }
 }
