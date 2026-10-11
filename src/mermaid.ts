@@ -76,9 +76,15 @@ class MermaidBlockView {
     );
   }
 
-  stopEvent(): boolean {
-    // Clicks in the rendered diagram must not move the caret.
-    return true;
+  // Only events aimed at our rendered panes are ours to swallow. A blanket
+  // `true` would also drop every event from the editable fence source, and
+  // ProseMirror never runs its keymaps (the code-block Tab indent) without them.
+  stopEvent(event: Event): boolean {
+    const target = event.target;
+    return (
+      target instanceof Node &&
+      (this.diagramEl.contains(target) || this.errorEl.contains(target))
+    );
   }
 
   destroy(): void {
