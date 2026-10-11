@@ -22,6 +22,19 @@ export function combineFrontmatter(front: string | null, body: string): string {
   return front.endsWith("\n") ? front + body : `${front}\n${body}`;
 }
 
+/**
+ * True for scalars YAML reads as a number (`0x2A`, `1e5`, `.inf`). The reader
+ * and the front-matter writer must agree on this, or the writer emits a value
+ * its own reader then refuses.
+ */
+export function isYamlNumber(value: string): boolean {
+  return (
+    /^[+-]?(?:0[xX][\da-fA-F_]+|0[oO][0-7_]+|0[bB][01_]+)$/i.test(value) ||
+    /^[+-]?(?:\d[\d_]*(?:\.[\d_]*)?|\.[\d_]+)(?:e[+-]?\d[\d_]*)?$/i.test(value) ||
+    /^[+-]?\.(?:inf|nan)$/i.test(value)
+  );
+}
+
 // Only common one-line string scalars are supported; other YAML forms fall back.
 export function parseScalar(raw: string): string | null {
   const value = raw.trimStart();
@@ -69,11 +82,7 @@ export function parseScalar(raw: string): string | null {
   const title = (comment < 0 ? value : value.slice(0, comment)).trim();
   if (!title || /^(?:\[|\]|\{|\}|[|>!&*])/.test(title)) return null;
   if (/^(?:~|null|true|false)$/i.test(title)) return null;
-  const isNumber =
-    /^[+-]?(?:0[xX][\da-fA-F_]+|0[oO][0-7_]+|0[bB][01_]+)$/i.test(title) ||
-    /^[+-]?(?:\d[\d_]*(?:\.[\d_]*)?|\.[\d_]+)(?:e[+-]?\d[\d_]*)?$/i.test(title) ||
-    /^[+-]?\.(?:inf|nan)$/i.test(title);
-  if (isNumber) return null;
+  if (isYamlNumber(title)) return null;
   return title;
 }
 

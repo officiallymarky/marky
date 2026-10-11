@@ -1,4 +1,4 @@
-import { parseScalar } from "./frontmatter.ts";
+import { isYamlNumber, parseScalar } from "./frontmatter.ts";
 import { createModal } from "./modal-dialog.ts";
 
 export interface FrontMatterFields {
@@ -26,10 +26,7 @@ function scalar(value: string): string {
     /^(?:[-?:,[\]{}#&*!|>'"%@`])/.test(trimmed) ||
     /[:]|[#]/.test(trimmed) ||
     /^(?:~|null|true|false)$/i.test(trimmed) ||
-    /^[+-]?(?:0[xX][\da-fA-F_]+|0[oO][0-7_]+|0[bB][01_]+)$/.test(trimmed) ||
-    /^[+-]?(?:\d[\d_]*(?:\.[\d_]*)?|\.[\d_]+)(?:e[+-]?\d[\d_]*)?$/.test(
-      trimmed,
-    );
+    isYamlNumber(trimmed);
   return plainUnsafe ? JSON.stringify(trimmed) : trimmed;
 }
 

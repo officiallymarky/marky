@@ -49,6 +49,9 @@ test("edge-case titles still round-trip through the reader", () => {
     "- dash start",
     'say "hi"',
     "true",
+    "1E5",
+    ".inf",
+    ".nan",
   ]) {
     const result = roundTrip({
       title,
