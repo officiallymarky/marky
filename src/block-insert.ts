@@ -49,3 +49,17 @@ export function insertBlockTr(
   }
   return tr.scrollIntoView();
 }
+
+/**
+ * Transaction inserting `node` with the caret parked at the end of its own
+ * content, so typing continues inside the inserted block (an alert body).
+ */
+export function insertBlockInsideTr(
+  state: EditorState,
+  node: ProsemirrorNode,
+): Transaction {
+  const tr = state.tr.replaceSelectionWith(node);
+  const start = insertedNodePos(tr, node) ?? state.selection.from;
+  tr.setSelection(TextSelection.create(tr.doc, start + node.nodeSize - 2));
+  return tr.scrollIntoView();
+}

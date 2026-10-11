@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Schema } from "@milkdown/kit/prose/model";
 import { EditorState, TextSelection } from "@milkdown/kit/prose/state";
-import { insertBlockTr } from "../src/block-insert.ts";
+import { ALERT_TEXT } from "../src/alerts.ts";
+import { insertBlockInsideTr, insertBlockTr } from "../src/block-insert.ts";
 
 const schema = new Schema({
   nodes: {
@@ -30,6 +31,15 @@ const stateWith = (doc, caret) =>
 
 /** Types one character at the resulting selection and returns the new state. */
 const typeInto = (state, text) => state.apply(state.tr.insertText(text));
+
+const alertNode = () =>
+  schema.node("blockquote", null, [
+    schema.node("paragraph", null, [
+      schema.text("[!NOTE]"),
+      schema.nodes.hardbreak.create(),
+      schema.text(ALERT_TEXT.note),
+    ]),
+  ]);
 
 test("insertBlockTr moves the caret into a block inserted mid-paragraph", () => {
   const doc = schema.node("doc", null, [para("abc")]);
@@ -78,4 +88,29 @@ test("insertBlockTr in an empty document parks the caret in the new block", () =
   const after = state.apply(insertBlockTr(state, schema.nodes.code_block.create()));
   assert.equal(after.doc.childCount, 1, "the empty paragraph is replaced");
   assert.equal(after.selection.$from.parent.type.name, "code_block");
+});
+
+test("insertBlockInsideTr keeps the caret inside an alert at a block boundary", () => {
+  const doc = schema.node("doc", null, [para("abc")]);
+  const state = stateWith(doc, 1);
+  const after = state.apply(insertBlockInsideTr(state, alertNode()));
+  assert.equal(after.doc.child(0).type.name, "blockquote");
+  const typed = typeInto(after, "x");
+  assert.equal(typed.doc.childCount, 2, "no stray paragraph is created");
+  assert.equal(
+    typed.doc.child(0).child(0).textContent,
+    `[!NOTE]${ALERT_TEXT.note}x`,
+    "typing continues inside the alert body",
+  );
+});
+
+test("insertBlockInsideTr parks the caret in the alert body mid-text too", () => {
+  const doc = schema.node("doc", null, [para("abc")]);
+  const state = stateWith(doc, 3);
+  const after = state.apply(insertBlockInsideTr(state, alertNode()));
+  const typed = typeInto(after, "x");
+  assert.equal(
+    typed.doc.child(1).child(0).textContent,
+    `[!NOTE]${ALERT_TEXT.note}x`,
+  );
 });

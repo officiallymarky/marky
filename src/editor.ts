@@ -16,7 +16,7 @@ import {
   Selection,
   TextSelection,
 } from "@milkdown/kit/prose/state";
-import { insertBlockTr } from "./block-insert";
+import { insertBlockInsideTr, insertBlockTr } from "./block-insert";
 import { Decoration, DecorationSet } from "@milkdown/kit/prose/view";
 import { Fragment } from "@milkdown/kit/prose/model";
 import type { Node as ProsemirrorNode, NodeType } from "@milkdown/kit/prose/model";
@@ -481,12 +481,8 @@ export async function createEditor(
       schema.text(ALERT_TEXT[kind]),
     ]);
     const quote = schema.nodes.blockquote.create(null, paragraph);
-    const { from } = state.selection;
-    const tr = state.tr.replaceSelectionWith(quote);
     // Park the caret at the end of the alert body so typing continues inside.
-    tr.setSelection(TextSelection.create(tr.doc, from + quote.nodeSize - 1));
-    tr.scrollIntoView();
-    view.dispatch(tr);
+    view.dispatch(insertBlockInsideTr(state, quote));
   };
 
   const insert = {
