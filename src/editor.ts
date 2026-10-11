@@ -16,6 +16,7 @@ import {
   Selection,
   TextSelection,
 } from "@milkdown/kit/prose/state";
+import { insertBlockTr } from "./block-insert";
 import { Decoration, DecorationSet } from "@milkdown/kit/prose/view";
 import { Fragment } from "@milkdown/kit/prose/model";
 import type { Node as ProsemirrorNode, NodeType } from "@milkdown/kit/prose/model";
@@ -163,6 +164,7 @@ const alertDecorationPlugin = new Plugin({
     },
   },
 });
+
 export async function createEditor(
   container: HTMLElement,
   initial: string,
@@ -333,25 +335,9 @@ export async function createEditor(
     }
   };
 
-  /**
-   * Shared transaction tail for block inserts: replaces the selection with
-   * `node`, parks the caret at the first selectable position after it and
-   * appends a paragraph when the node ends the document (nothing to select).
-   */
+  /** Inserts `node` as its own block, moving the caret into what follows. */
   const dispatchBlockInsert = (node: ProsemirrorNode): void => {
-    const { state } = view;
-    const { from } = state.selection;
-    const tr = state.tr.replaceSelectionWith(node);
-    const next = Selection.findFrom(tr.doc.resolve(from), 1, true);
-    if (next) {
-      tr.setSelection(next);
-    } else {
-      // Nothing selectable after the node (document end): add a paragraph.
-      tr.insert(tr.doc.content.size, state.schema.nodes.paragraph.create());
-      tr.setSelection(TextSelection.create(tr.doc, tr.doc.content.size - 1));
-    }
-    tr.scrollIntoView();
-    view.dispatch(tr);
+    view.dispatch(insertBlockTr(view.state, node));
   };
   /** A thematic break as its own block; keeps any paragraph splits intact. */
   const insertHr = (): void => {
