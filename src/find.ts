@@ -118,6 +118,27 @@ export function nextMatchFrom(matches: readonly MatchRange[], from: number): num
   return matches.length ? 0 : -1;
 }
 
+/**
+ * Match index to track when a query is applied. The needle decides: a
+ * re-query for the same needle keeps the tracked match, because a case
+ * toggle, an undo or a surface switch must not step past it, while a new
+ * needle starts from the first match at or after the caret. -1 when there is
+ * no match to track.
+ */
+export function queryAnchorIndex(
+  matches: readonly MatchRange[],
+  tracked: { needle: string; from: number } | null,
+  needle: string,
+  caret: number,
+): number {
+  if (!matches.length) return -1;
+  if (tracked && tracked.needle === needle) {
+    const index = locateMatch(matches, tracked.from);
+    if (index >= 0) return index;
+  }
+  return nextMatchFrom(matches, caret);
+}
+
 /** Builds a transaction replacing `m` with `replacement`, keeping text marks. */
 export function replaceMatch(
   state: EditorState,
@@ -269,12 +290,18 @@ export function createFindApi(view: EditorView): FindHandle {
   return {
     setQuery(query) {
       const q = query && query.needle ? query : null;
+      const previous = state();
       let currentFrom: number | null = null;
       if (q) {
         const found = computeMatches(view.state.doc, q);
-        const idx = found.length
-          ? nextMatchFrom(found, view.state.selection.head)
-          : -1;
+        const idx = queryAnchorIndex(
+          found,
+          previous.query && previous.currentFrom !== null
+            ? { needle: previous.query.needle, from: previous.currentFrom }
+            : null,
+          q.needle,
+          view.state.selection.head,
+        );
         currentFrom = idx >= 0 ? found[idx].from : null;
       }
       view.dispatch(

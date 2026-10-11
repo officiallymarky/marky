@@ -9,6 +9,7 @@ import {
   findTextMatches,
   locateMatch,
   nextMatchFrom,
+  queryAnchorIndex,
   replaceAllTr,
   replaceCurrentTr,
   replaceMatch,
@@ -235,4 +236,21 @@ test("replaceMatch keeps marks and deletes on empty replacement", () => {
   assert.equal(kept.doc.nodeAt(3).marks[0].type.name, "strong");
   const gone = state.apply(replaceMatch(state, { from: 3, to: 4 }, ""));
   assert.equal(gone.doc.textContent, "a ");
+});
+
+test("queryAnchorIndex keeps the tracked match when the needle is unchanged", () => {
+  const matches = [
+    { from: 1, to: 2 },
+    { from: 3, to: 4 },
+  ];
+  // move() parks the caret at the match's end, so a caret-based re-anchor
+  // would step to the next match; the tracked position must win instead.
+  assert.equal(queryAnchorIndex(matches, { needle: "x", from: 3 }, "x", 4), 1);
+  // A different needle starts fresh from the caret.
+  assert.equal(queryAnchorIndex(matches, { needle: "x", from: 3 }, "y", 4), 0);
+  // Nothing tracked yet: the caret decides.
+  assert.equal(queryAnchorIndex(matches, null, "x", 3), 1);
+  // The tracked match is gone: fall back to the caret.
+  assert.equal(queryAnchorIndex([{ from: 5, to: 6 }], { needle: "x", from: 0 }, "x", 5), 0);
+  assert.equal(queryAnchorIndex([], { needle: "x", from: 3 }, "x", 1), -1);
 });
