@@ -137,8 +137,8 @@ test("replaceCurrentTr replaces the tracked match, keeping marks", () => {
   const node = next.doc.nodeAt(5);
   assert.equal(node.marks.length, 1);
   assert.equal(node.marks[0].type.name, "strong");
-  // Only match left: continue tracking the replacement itself.
-  assert.equal(res.currentFrom, 5);
+  // Nothing left to continue from: the search is exhausted.
+  assert.equal(res.currentFrom, null);
 });
 
 test("replaceCurrentTr advances past the replacement, never re-replacing it", () => {
@@ -146,7 +146,7 @@ test("replaceCurrentTr advances past the replacement, never re-replacing it", ()
   // tracked position on the second match, not the just-inserted "XX".
   const state = plain("X X");
   const query = { needle: "X", caseSensitive: true };
-  const first = replaceCurrentTr(state, query, null, "XX");
+  const first = replaceCurrentTr(state, query, 1, "XX");
   assert.ok(first);
   // Old second match at 3 maps past the one-char growth.
   assert.equal(first.currentFrom, 4);
@@ -156,16 +156,28 @@ test("replaceCurrentTr advances past the replacement, never re-replacing it", ()
   const second = replaceCurrentTr(next, query, first.currentFrom, "XX");
   assert.ok(second);
   assert.equal(next.apply(second.tr).doc.textContent, "XX XX");
-  // Nothing left: empty replacement deletes the tracked match.
-  const third = replaceCurrentTr(next.apply(second.tr), query, second.currentFrom, "");
-  assert.ok(third);
-  assert.equal(next.apply(second.tr).apply(third.tr).doc.textContent, "XX X");
+  // The replaced match was the last one: nothing is left to continue from.
+  assert.equal(second.currentFrom, null);
+});
+
+test("replaceCurrentTr never re-targets a replacement containing the needle", () => {
+  // "a x" with needle "x" and replacement "x!": the inserted "x" must not
+  // become the current match again, or Replace would append forever.
+  const state = plain("a x");
+  const query = { needle: "x", caseSensitive: true };
+  const res = replaceCurrentTr(state, query, 3, "x!");
+  assert.ok(res);
+  const next = state.apply(res.tr);
+  assert.equal(next.doc.textContent, "a x!");
+  assert.equal(res.currentFrom, null, "no match to continue from");
+  // Without a tracked match another replace is a no-op, not a re-target.
+  assert.equal(replaceCurrentTr(next, query, res.currentFrom, "x!"), null);
 });
 
 test("replaceCurrentTr returns null with no matches", () => {
   const state = plain("nothing here");
   assert.equal(
-    replaceCurrentTr(state, { needle: "zzz", caseSensitive: true }, null, "x"),
+    replaceCurrentTr(state, { needle: "zzz", caseSensitive: true }, 1, "x"),
     null,
   );
 });

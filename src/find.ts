@@ -137,20 +137,21 @@ export function replaceMatch(
 /**
  * Transaction replacing the match at the tracked position (`currentFrom`; the
  * match containing it, else the nearest before, else the first). The returned
- * position tracks where the search continues: the next old match mapped
- * through the edit — never wrapping back onto the replacement — or the
- * replacement's own start when it was the last match. Null when there is no
- * match to replace.
+ * position is where the search continues: the next old match mapped through
+ * the edit, never wrapping back onto the replacement, or null when the
+ * replaced match was the last one. Null (the return value) when there is no
+ * tracked match or nothing matches.
  */
 export function replaceCurrentTr(
   state: EditorState,
   query: FindQuery,
   currentFrom: number | null,
   replacement: string,
-): { tr: Transaction; currentFrom: number } | null {
+): { tr: Transaction; currentFrom: number | null } | null {
+  if (currentFrom === null) return null;
   const found = computeMatches(state.doc, query);
   if (!found.length) return null;
-  let current = locateMatch(found, currentFrom ?? state.selection.head);
+  let current = locateMatch(found, currentFrom);
   if (current === -1) current = 0;
   const m = found[current];
   const tr = replaceMatch(state, m, replacement);
@@ -165,8 +166,7 @@ export function replaceCurrentTr(
   }
   return {
     tr,
-    currentFrom:
-      after >= 0 ? tr.mapping.map(found[after].from) : tr.mapping.map(m.from),
+    currentFrom: after >= 0 ? tr.mapping.map(found[after].from) : null,
   };
 }
 
@@ -298,10 +298,12 @@ export function createFindApi(view: EditorView): FindHandle {
         replacement,
       );
       if (!res) return false;
-      res.tr
-        .setMeta(findPluginKey, { currentFrom: res.currentFrom })
-        .setSelection(TextSelection.create(res.tr.doc, res.currentFrom))
-        .scrollIntoView();
+      res.tr.setMeta(findPluginKey, { currentFrom: res.currentFrom });
+      if (res.currentFrom !== null) {
+        res.tr
+          .setSelection(TextSelection.create(res.tr.doc, res.currentFrom))
+          .scrollIntoView();
+      }
       view.dispatch(res.tr);
       scrollToCurrent();
       return true;
