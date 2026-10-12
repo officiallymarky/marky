@@ -13,10 +13,13 @@ const MAX_COLS = 10;
 const clamp = (value: number, max: number): number =>
   Math.min(Math.max(Math.round(value), MIN), max);
 
-const parseDimension = (input: HTMLInputElement, max: number): number => {
-  const parsed = Number(input.value);
-  return Number.isFinite(parsed) ? clamp(parsed, max) : 3;
-};
+/**
+ * A `type="number"` input only ever reports a valid floating-point number or
+ * the empty string, so the parsed value is always finite; an emptied field
+ * reads as 0 and clamps to the minimum.
+ */
+const parseDimension = (input: HTMLInputElement, max: number): number =>
+  clamp(Number(input.value), max);
 
 /**
  * Shows the table dialog. Resolves the entered dimensions, or null when
