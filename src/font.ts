@@ -6,12 +6,12 @@
 export type FontId = "system" | "serif" | "mono";
 export type FontSizeId = "small" | "medium" | "large";
 
-export interface FontFamilyOption {
+interface FontFamilyOption {
   id: FontId;
   label: string;
 }
 
-export interface FontSizeOption {
+interface FontSizeOption {
   id: FontSizeId;
   label: string;
 }

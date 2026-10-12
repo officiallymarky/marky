@@ -1,7 +1,7 @@
 /** Rows × columns dialog behind the native Insert ▸ Table… menu item. */
 import { createModal } from "./modal-dialog.ts";
 
-export interface TableDimensions {
+interface TableDimensions {
   rows: number;
   cols: number;
 }

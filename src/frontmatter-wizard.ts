@@ -1,7 +1,7 @@
 import { isYamlNumber, parseScalar } from "./frontmatter.ts";
 import { createModal } from "./modal-dialog.ts";
 
-export interface FrontMatterFields {
+interface FrontMatterFields {
   /** Document title; empty string omits the `title` key. */
   title: string;
   /** ISO date (YYYY-MM-DD) or null to omit the `date` key. */
@@ -129,7 +129,7 @@ function keyLine(lines: string[], key: string): KeyPresence {
   return { line: -1, complex: false };
 }
 
-export interface ReadFrontMatter {
+interface ReadFrontMatter {
   prefill: FrontMatterFields;
   /** False when a known value uses YAML syntax the dialog cannot rewrite safely. */
   supported: boolean;

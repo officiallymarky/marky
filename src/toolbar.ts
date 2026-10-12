@@ -2,7 +2,7 @@ import type { EditorView } from "@milkdown/kit/prose/view";
 import { ALERT_KINDS, type AlertKind } from "./alerts";
 
 /** Formatting actions the toolbar can trigger; the editor wires them to commands. */
-export interface ToolbarActions {
+interface ToolbarActions {
   bold(): void;
   italic(): void;
   code(): void;

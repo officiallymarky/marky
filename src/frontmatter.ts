@@ -1,4 +1,4 @@
-export interface SplitDocument {
+interface SplitDocument {
   /** Verbatim front-matter block including delimiters and trailing newline. */
   front: string | null;
   /** Markdown body without the front-matter block. */

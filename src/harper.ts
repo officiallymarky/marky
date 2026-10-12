@@ -53,7 +53,7 @@ const GRAMMAR_KINDS = new Set([
   "WordOrder",
 ]);
 
-export type SpellSeverity = "spelling" | "grammar";
+type SpellSeverity = "spelling" | "grammar";
 
 /** Underline class for a Harper lint kind, or null for kinds we do not show. */
 export function severityOf(kind: string): SpellSeverity | null {
@@ -69,7 +69,7 @@ export interface SpellSuggestion {
 }
 
 /** A lint as Harper reports it: character offsets into the flattened text. */
-export interface RawLint {
+interface RawLint {
   start: number;
   end: number;
   severity: SpellSeverity;
@@ -94,7 +94,7 @@ export interface DocLint {
 }
 
 /** The document's prose plus the position every character came from. */
-export interface LintInput {
+interface LintInput {
   text: string;
   positions: (number | null)[];
 }
@@ -326,7 +326,7 @@ interface RetainedLints {
   source: string;
 }
 
-export interface SpellCheckOptions {
+interface SpellCheckOptions {
   /** Surfaced for load and lint failures; the check keeps working without it. */
   onError?: (title: string, error: unknown) => void;
 }

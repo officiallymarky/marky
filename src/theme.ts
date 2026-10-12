@@ -1,5 +1,5 @@
 /** Built-in editor themes. Palettes live in styles.css keyed by `data-theme`. */
-export type ThemeId =
+type ThemeId =
   | "light"
   | "dark"
   | "sepia"

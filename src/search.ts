@@ -6,7 +6,7 @@
  */
 import { findTextMatches, locateMatch, nextMatchFrom, type FindHandle, type FindQuery, type MatchRange } from "./find.ts";
 
-export interface SearchPanelDeps {
+interface SearchPanelDeps {
   rawEditor: HTMLTextAreaElement;
   /** The active editing surface. */
   surface: () => "rich" | "raw";
@@ -20,7 +20,7 @@ export interface SearchPanelDeps {
   showError: (error: unknown) => void;
 }
 
-export interface SearchPanel {
+interface SearchPanel {
   open(withReplace: boolean): void;
   isOpen(): boolean;
   /** Re-applies the current query to the active surface. */

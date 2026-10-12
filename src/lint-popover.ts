@@ -8,13 +8,13 @@ import type { EditorView } from "@milkdown/kit/prose/view";
 import type { DocLint, SpellSuggestion } from "./harper.ts";
 import { SUGGESTION_INSERT_AFTER, SUGGESTION_REMOVE } from "./harper.ts";
 
-export interface LintPopoverHandlers {
+interface LintPopoverHandlers {
   apply(lint: DocLint, suggestion: SpellSuggestion): void;
   ignore(lint: DocLint): void;
   addToDictionary(lint: DocLint): void;
 }
 
-export interface LintPopover {
+interface LintPopover {
   show(lint: DocLint): void;
   hide(): void;
   destroy(): void;
