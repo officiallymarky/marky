@@ -120,13 +120,6 @@ impl RecoveryStore {
             .truncate(false)
             .mode(0o600)
             .open(directory.join(GUARD_NAME))?;
-        #[cfg(not(unix))]
-        let guard = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(directory.join(GUARD_NAME))?;
         Ok(Self {
             root: Arc::new(directory),
             guard: Arc::new(guard),
@@ -315,13 +308,6 @@ impl RecoveryStore {
             .truncate(false)
             .mode(0o600)
             .open(&lock_path)?;
-        #[cfg(not(unix))]
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(&lock_path)?;
         match file.try_lock() {
             Ok(()) => {
                 locks.insert(id.to_string(), file);
@@ -359,13 +345,6 @@ fn claim_orphan(
         .create(true)
         .truncate(false)
         .mode(0o600)
-        .open(lock_path);
-    #[cfg(not(unix))]
-    let file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
         .open(lock_path);
     let file = file.map_err(|e| {
         format!(
@@ -512,8 +491,6 @@ fn atomic_replace(path: &Path, payload: &[u8]) -> io::Result<()> {
             .create_new(true)
             .mode(0o600)
             .open(&temp)?;
-        #[cfg(not(unix))]
-        let mut file = OpenOptions::new().write(true).create_new(true).open(&temp)?;
         file.write_all(payload)?;
         file.sync_all()?;
         Ok(())

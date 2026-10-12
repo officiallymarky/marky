@@ -81,8 +81,6 @@ impl FileIdentity {
             .unwrap_or_default();
         #[cfg(unix)]
         let inode = self.inode;
-        #[cfg(not(unix))]
-        let inode = 0_u64;
         format!("{}:{modified}:{inode}", self.length)
     }
 }
@@ -482,12 +480,6 @@ fn atomic_write(path: &Path, content: &str) -> Result<FileIdentity, WriteFailure
         return write_in_place(&write_path, content);
     }
 
-    #[cfg(not(unix))]
-    if metadata.is_some() {
-        // The standard library cannot copy platform ACLs and extended metadata.
-        return write_in_place(&write_path, content);
-    }
-
     #[cfg(unix)]
     let attributes = match metadata.as_ref() {
         Some(_) => match read_extended_attributes(&write_path) {
@@ -599,16 +591,11 @@ fn atomic_write(path: &Path, content: &str) -> Result<FileIdentity, WriteFailure
 }
 
 /// Sync the directory entry so a completed rename survives power loss.
-/// The standard library cannot open directories on Windows, so only Unix
-/// can enforce this; elsewhere the write itself is already synced.
+/// The standard library cannot open directories on Windows, so only Unix can
+/// enforce this.
 #[cfg(unix)]
 fn sync_directory(dir: &Path) -> io::Result<()> {
     fs::File::open(dir)?.sync_all()
-}
-
-#[cfg(not(unix))]
-fn sync_directory(_dir: &Path) -> io::Result<()> {
-    Ok(())
 }
 
 #[tauri::command]
