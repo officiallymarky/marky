@@ -1,6 +1,6 @@
 # marky
 
-A Markdown editor for Linux, built for writing and editing local documents in a
+A desktop Markdown editor for Linux, Windows, and macOS, built for writing and editing local documents in a
 single, focused workspace. marky renders formatting directly in the editor, so
 there is no separate preview pane to manage. Switch to Markdown source whenever
 you need direct control over the file.
@@ -126,6 +126,27 @@ backups remain deferred.
 A successful save clears the backup when no edits remain unsaved. Edits made
 while a save is running remain eligible for recovery. Explicitly discarding a
 document also removes its backup; cancelling a close keeps it.
+
+## Install
+
+Download a package from the
+[latest release](https://github.com/officiallymarky/marky/releases/latest):
+
+| Platform | Package |
+| --- | --- |
+| Linux | AppImage, `.deb`, or `.rpm` |
+| Windows | `marky_<version>_x64-setup.exe` (installs for the current user) |
+| macOS | `marky_<version>_universal.dmg` (Apple Silicon and Intel) |
+
+The Windows and macOS builds are not signed. On Windows, SmartScreen warns
+before the first run: choose **More info**, then **Run anyway**. On macOS, drag
+marky to Applications and open it once; when macOS refuses, open **System
+Settings → Privacy & Security** and choose **Open Anyway**. Alternatively, clear
+the download quarantine from a terminal:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/marky.app
+```
 
 ## Usage
 

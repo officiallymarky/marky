@@ -1,8 +1,8 @@
 name: CI
 
 # Verify every push to main and every pull request. Bundle builds (deb, rpm,
-# AppImage) run on demand and on version tags, where they are also published as
-# a GitHub release. CI runs the justfile recipes, so it uses the same commands
+# AppImage, a Windows NSIS installer and a universal macOS dmg) run on demand
+# and on version tags, where they are also published as a GitHub release. CI runs the justfile recipes, so it uses the same commands
 # as a local checkout.
 #
 # Release assets carry the version from src-tauri/tauri.conf.json, not the tag:
@@ -111,11 +111,23 @@ jobs:
 
   portability:
     # marky is not Linux-only: lint and test the Rust backend on the other
-    # desktop platforms. macOS cannot be cross-checked from Linux at all.
+    # desktop platforms, and bundle them alongside the Linux release. Bundles
+    # are unsigned; macOS gets an ad-hoc signature (tauri.conf.json) so Apple
+    # Silicon will run it at all.
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest]
+        include:
+          - os: windows-latest
+            artifact: marky-windows-x86_64
+            targets: ""
+            bundle: --bundles nsis
+            bundles: src-tauri/target/release/bundle/nsis/*.exe
+          - os: macos-latest
+            artifact: marky-macos-universal
+            targets: aarch64-apple-darwin,x86_64-apple-darwin
+            bundle: --target universal-apple-darwin --bundles dmg
+            bundles: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     defaults:
@@ -137,6 +149,7 @@ jobs:
         with:
           toolchain: 1.98.1
           components: clippy
+          targets: ${{ matrix.targets }}
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
@@ -155,6 +168,19 @@ jobs:
       - name: Test
         working-directory: src-tauri
         run: cargo test --locked
+
+      - name: Build bundle
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+        run: pnpm tauri build ${{ matrix.bundle }}
+
+      - name: Upload bundle
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.bundles }}
+          if-no-files-found: error
+          retention-days: 14
 
   dependency-security:
     # Lockfile advisories, npm audit, the bundled-dependency SBOM, and the
@@ -214,7 +240,7 @@ jobs:
         run: just secrets
 
   release:
-    needs: [verify, dependency-security]
+    needs: [verify, portability, dependency-security]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-22.04
     permissions:
@@ -224,6 +250,12 @@ jobs:
         with:
           name: marky-linux-x86_64
           path: release-assets
+
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: marky-{windows,macos}-*
+          path: release-assets/other
+          merge-multiple: true
 
       - name: Publish release
         env:
@@ -236,4 +268,5 @@ jobs:
             --generate-notes \
             release-assets/bundle/appimage/*.AppImage \
             release-assets/bundle/deb/*.deb \
-            release-assets/bundle/rpm/*.rpm
+            release-assets/bundle/rpm/*.rpm \
+            release-assets/other/*
