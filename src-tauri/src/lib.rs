@@ -579,6 +579,16 @@ fn atomic_write_with(
         let mut file = match options.open(&temp_path) {
             Ok(file) => file,
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            // The directory refuses a new entry, but the file itself may still
+            // be writable: fall back rather than fail a save that can work.
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::PermissionDenied | io::ErrorKind::ReadOnlyFilesystem
+                ) =>
+            {
+                return write_in_place(&write_path, content);
+            }
             Err(error) => return Err(WriteFailure::Uncommitted(error)),
         };
 
@@ -1355,6 +1365,39 @@ mod tests {
 
         result.unwrap();
         assert_eq!(new_inode, old_inode);
+    }
+
+    /// A file the user can write inside a directory they cannot: the save must
+    /// still succeed, which it can only do by writing in place. The directory's
+    /// write bit is what blocks the temp file, so this needs a non-root run.
+    #[cfg(unix)]
+    #[test]
+    fn a_writable_file_in_a_read_only_directory_is_saved_in_place() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+        let directory = temporary_directory();
+        let path = directory.join("notes.md");
+        fs::write(&path, "old content").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        let old_inode = fs::metadata(&path).unwrap().ino();
+        fs::set_permissions(&directory, fs::Permissions::from_mode(0o555)).unwrap();
+
+        let identities = DocumentIdentities::default();
+        let result = save_to_path(&identities, &path.to_string_lossy(), "new content", false);
+
+        fs::set_permissions(&directory, fs::Permissions::from_mode(0o755)).unwrap();
+        let contents = fs::read_to_string(&path).unwrap();
+        let new_inode = fs::metadata(&path).unwrap().ino();
+        let entries: Vec<_> = fs::read_dir(&directory)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        fs::remove_dir_all(directory).unwrap();
+
+        result.unwrap();
+        assert_eq!(contents, "new content");
+        assert_eq!(new_inode, old_inode, "the file is written in place");
+        assert_eq!(entries.len(), 1, "no temp file may be left behind: {entries:?}");
     }
 
     /// Any other read failure may hide metadata the write cannot copy, so the
