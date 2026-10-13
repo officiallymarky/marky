@@ -623,10 +623,15 @@ fn atomic_write_with(
         }
 
         if let Some(metadata) = &metadata {
-            if file.set_permissions(metadata.permissions()).is_err() {
-                drop(file);
-                let _ = fs::remove_file(&temp_path);
-                return write_in_place(&write_path, content);
+            match file.set_permissions(metadata.permissions()) {
+                Ok(()) => {}
+                // A filesystem that cannot store modes has none to preserve.
+                Err(error) if error.kind() == io::ErrorKind::Unsupported => {}
+                Err(_) => {
+                    drop(file);
+                    let _ = fs::remove_file(&temp_path);
+                    return write_in_place(&write_path, content);
+                }
             }
         }
         if let Err(error) = file.sync_all() {
@@ -1297,6 +1302,59 @@ mod tests {
         result.unwrap();
         assert_eq!(contents, "new content");
         assert_ne!(new_inode, old_inode, "the file must be replaced, not truncated");
+    }
+
+    /// A filesystem that cannot store an attribute has none to preserve, so the
+    /// replacement still happens. A bogus namespace reaches that arm with the
+    /// real writer: `setxattr` answers EOPNOTSUPP for it.
+    #[cfg(unix)]
+    #[test]
+    fn atomic_write_replaces_the_file_when_an_attribute_cannot_be_stored() {
+        use std::os::unix::fs::MetadataExt;
+
+        let directory = temporary_directory();
+        let path = directory.join("notes.md");
+        fs::write(&path, "old content").unwrap();
+        let old_inode = fs::metadata(&path).unwrap().ino();
+
+        let result = atomic_write_with(&path, "new content", |_| {
+            Ok(vec![(
+                std::ffi::OsString::from("bogus.marky-test"),
+                b"value".to_vec(),
+            )])
+        });
+        let new_inode = fs::metadata(&path).unwrap().ino();
+        let contents = fs::read_to_string(&path).unwrap();
+        fs::remove_dir_all(directory).unwrap();
+
+        result.unwrap();
+        assert_eq!(contents, "new content");
+        assert_ne!(new_inode, old_inode, "the file must be replaced, not truncated");
+    }
+
+    /// A refusal that is not "unsupported" may hide metadata the copy cannot
+    /// carry, so the file keeps its inode. `trusted.*` answers EPERM.
+    #[cfg(unix)]
+    #[test]
+    fn atomic_write_stays_in_place_when_an_attribute_is_denied() {
+        use std::os::unix::fs::MetadataExt;
+
+        let directory = temporary_directory();
+        let path = directory.join("notes.md");
+        fs::write(&path, "old content").unwrap();
+        let old_inode = fs::metadata(&path).unwrap().ino();
+
+        let result = atomic_write_with(&path, "new content", |_| {
+            Ok(vec![(
+                std::ffi::OsString::from("trusted.marky-test"),
+                b"value".to_vec(),
+            )])
+        });
+        let new_inode = fs::metadata(&path).unwrap().ino();
+        fs::remove_dir_all(directory).unwrap();
+
+        result.unwrap();
+        assert_eq!(new_inode, old_inode);
     }
 
     /// Any other read failure may hide metadata the write cannot copy, so the
