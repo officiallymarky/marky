@@ -13,12 +13,17 @@
 //! stable directory-wide `.store.lock` guard (never removed itself), so an
 //! instance can never lock a sidecar inode that another instance is about to
 //! unlink and recreate.
+//!
+//! Unix only: the store depends on POSIX file modes (0600/0700), advisory
+//! `flock` locks, `rename` replacing an existing file, and a directory
+//! `fsync`. On other targets the module is compiled out entirely, so the
+//! recovery feature is absent rather than broken.
+#![cfg(unix)]
 
 use std::collections::HashMap;
-#[cfg(unix)]
-use std::os::unix::fs::OpenOptionsExt;
 use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io::{self, Write};
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -125,7 +130,6 @@ impl RecoveryStore {
     /// and its stable guard file.
     pub(crate) fn new(directory: PathBuf) -> io::Result<Self> {
         create_recovery_root(&directory)?;
-        #[cfg(unix)]
         let guard = OpenOptions::new()
             .read(true)
             .write(true)
@@ -334,7 +338,6 @@ impl RecoveryStore {
         if let Some(message) = planted_link(&lock_path) {
             return Err(io::Error::new(io::ErrorKind::InvalidData, message));
         }
-        #[cfg(unix)]
         let file = OpenOptions::new()
             .read(true)
             .write(true)
@@ -372,7 +375,6 @@ fn claim_orphan(
     if let Some(message) = planted_link(lock_path) {
         return Err(message);
     }
-    #[cfg(unix)]
     let file = OpenOptions::new()
         .read(true)
         .write(true)
@@ -532,11 +534,8 @@ fn snapshot_id(id: &str) -> Result<&str, io::Error> {
 /// Creates the recovery directory with private permissions.
 fn create_recovery_root(root: &Path) -> io::Result<()> {
     fs::create_dir_all(root)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(root, fs::Permissions::from_mode(0o700))?;
-    }
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(root, fs::Permissions::from_mode(0o700))?;
     if let Some(parent) = root.parent() {
         sync_directory(parent)?;
     }
@@ -557,7 +556,6 @@ fn atomic_replace(path: &Path, payload: &[u8]) -> io::Result<()> {
         now_millis()
     ));
     let written = (|| -> io::Result<()> {
-        #[cfg(unix)]
         let mut file = OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -726,7 +724,6 @@ mod tests {
         assert_eq!(read_stored_content(&dir.snapshot_path(&uuid(1))), "second");
     }
 
-    #[cfg(unix)]
     #[test]
     fn failed_write_preserves_previous_snapshot() {
         use std::os::unix::fs::PermissionsExt;
@@ -768,7 +765,6 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
     #[test]
     fn failed_discard_keeps_live_ownership() {
         use std::os::unix::fs::PermissionsExt;
@@ -1028,7 +1024,6 @@ mod tests {
         assert!(dir.path().join("unrelated.txt").exists());
     }
 
-    #[cfg(unix)]
     #[test]
     fn recovery_storage_is_private_to_the_user() {
         use std::os::unix::fs::PermissionsExt;
@@ -1053,7 +1048,6 @@ mod tests {
         assert_eq!(lock_mode, 0o600);
     }
 
-    #[cfg(unix)]
     #[test]
     fn snapshot_symlink_is_replaced_without_touching_the_target() {
         use std::os::unix::fs::symlink;
@@ -1079,7 +1073,6 @@ mod tests {
         assert!(!dir.snapshot_path(&uuid(1)).exists());
     }
 
-    #[cfg(unix)]
     #[test]
     fn planted_lock_symlinks_are_refused_without_touching_the_target() {
         use std::os::unix::fs::symlink;

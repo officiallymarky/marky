@@ -16,6 +16,7 @@ use tauri::{AppHandle, Manager};
 use tauri_plugin_dialog::{DialogExt, FilePath};
 
 mod native_menu;
+#[cfg(unix)]
 mod recovery;
 mod recent;
 mod window_state;
@@ -848,6 +849,7 @@ where
 
 /// Persists a private crash-recovery snapshot. The backend assigns
 /// `updatedAt` and holds the per-id advisory lock for the session.
+#[cfg(unix)]
 #[tauri::command]
 async fn write_recovery(
     store: tauri::State<'_, recovery::RecoveryStore>,
@@ -866,6 +868,7 @@ async fn write_recovery(
 /// Lists orphan snapshots left by crashed instances as metadata summaries
 /// (newest first), so the startup prompt never ships every snapshot's text.
 /// Unreadable snapshots are reported in `errors` and stay on disk untouched.
+#[cfg(unix)]
 #[tauri::command]
 async fn list_recovery(
     store: tauri::State<'_, recovery::RecoveryStore>,
@@ -877,6 +880,7 @@ async fn list_recovery(
 /// Returns the content of one recovery snapshot so the frontend can restore
 /// it. Refuses a non-canonical id and an id with no snapshot file; nothing is
 /// deleted, because recovery files are the user's unsaved writing.
+#[cfg(unix)]
 #[tauri::command]
 async fn read_recovery(
     store: tauri::State<'_, recovery::RecoveryStore>,
@@ -893,6 +897,7 @@ async fn read_recovery(
 
 /// Deletes exactly the recovery snapshot with this id; snapshots live in
 /// another instance are refused and absent ids are a no-op.
+#[cfg(unix)]
 #[tauri::command]
 async fn discard_recovery(
     store: tauri::State<'_, recovery::RecoveryStore>,
@@ -909,6 +914,7 @@ async fn discard_recovery(
 
 /// Drops this instance's claim on a deferred startup snapshot without
 /// deleting it.
+#[cfg(unix)]
 #[tauri::command]
 async fn release_recovery(
     store: tauri::State<'_, recovery::RecoveryStore>,
@@ -950,10 +956,15 @@ pub fn run() {
             recent::clear_recent_documents,
             set_window_title,
             native_menu::set_menu_palette,
+#[cfg(unix)]
             write_recovery,
+#[cfg(unix)]
             list_recovery,
+#[cfg(unix)]
             read_recovery,
+#[cfg(unix)]
             discard_recovery,
+#[cfg(unix)]
             release_recovery
         ])
         .on_menu_event(|app, event| {
@@ -964,14 +975,17 @@ pub fn run() {
             let _ = app.emit("menu-action", action);
         })
         .setup(|app| {
-            let recovery_root = app
-                .path()
-                .app_data_dir()
-                .map_err(|e| format!("cannot resolve app data directory: {e}"))?
-                .join("recovery");
-            let recovery_store = recovery::RecoveryStore::new(recovery_root)
-                .map_err(|e| format!("cannot open recovery store: {e}"))?;
-            app.manage(recovery_store);
+            #[cfg(unix)]
+            {
+                let recovery_root = app
+                    .path()
+                    .app_data_dir()
+                    .map_err(|e| format!("cannot resolve app data directory: {e}"))?
+                    .join("recovery");
+                let recovery_store = recovery::RecoveryStore::new(recovery_root)
+                    .map_err(|e| format!("cannot open recovery store: {e}"))?;
+                app.manage(recovery_store);
+            }
             #[cfg(target_os = "linux")]
             {
                 use gtk::prelude::*;
