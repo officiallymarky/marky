@@ -14,15 +14,17 @@
 //! instance can never lock a sidecar inode that another instance is about to
 //! unlink and recreate.
 //!
-//! Unix only: the store depends on POSIX file modes (0600/0700), advisory
-//! `flock` locks, `rename` replacing an existing file, and a directory
-//! `fsync`. On other targets the module is compiled out entirely, so the
-//! recovery feature is absent rather than broken.
-#![cfg(unix)]
+//! On Unix the files are private through modes 0600/0700 and the locks are
+//! `flock`. On Windows the per-user application data directory provides the
+//! privacy, the locks are `LockFileEx`, and removing an open sidecar relies on
+//! the POSIX delete semantics NTFS has used since Windows 10 1809. Windows
+//! cannot sync a directory, so a rename there is durable only once the
+//! filesystem commits it.
 
 use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io::{self, Write};
+#[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -30,6 +32,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+
+use crate::sync_directory;
 
 const SNAPSHOT_SUFFIX: &str = ".json";
 const LOCK_SUFFIX: &str = ".lock";
@@ -130,13 +134,7 @@ impl RecoveryStore {
     /// and its stable guard file.
     pub(crate) fn new(directory: PathBuf) -> io::Result<Self> {
         create_recovery_root(&directory)?;
-        let guard = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .mode(0o600)
-            .open(directory.join(GUARD_NAME))?;
+        let guard = open_lock_file(&directory.join(GUARD_NAME))?;
         Ok(Self {
             root: Arc::new(directory),
             guard: Arc::new(guard),
@@ -338,13 +336,7 @@ impl RecoveryStore {
         if let Some(message) = planted_link(&lock_path) {
             return Err(io::Error::new(io::ErrorKind::InvalidData, message));
         }
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .mode(0o600)
-            .open(&lock_path)?;
+        let file = open_lock_file(&lock_path)?;
         match file.try_lock() {
             Ok(()) => {
                 locks.insert(id.to_string(), file);
@@ -375,14 +367,7 @@ fn claim_orphan(
     if let Some(message) = planted_link(lock_path) {
         return Err(message);
     }
-    let file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .mode(0o600)
-        .open(lock_path);
-    let file = file.map_err(|e| {
+    let file = open_lock_file(lock_path).map_err(|e| {
         format!(
             "recovery snapshot {id} at {} cannot be locked: {e}",
             lock_path.display()
@@ -534,12 +519,35 @@ fn snapshot_id(id: &str) -> Result<&str, io::Error> {
 /// Creates the recovery directory with private permissions.
 fn create_recovery_root(root: &Path) -> io::Result<()> {
     fs::create_dir_all(root)?;
-    use std::os::unix::fs::PermissionsExt;
-    fs::set_permissions(root, fs::Permissions::from_mode(0o700))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(root, fs::Permissions::from_mode(0o700))?;
+    }
     if let Some(parent) = root.parent() {
         sync_directory(parent)?;
     }
     Ok(())
+}
+
+/// Options for a file only this user may read. On Windows the per-user
+/// application data directory keeps other accounts out instead.
+fn private_options() -> OpenOptions {
+    #[cfg_attr(not(unix), allow(unused_mut))]
+    let mut options = OpenOptions::new();
+    #[cfg(unix)]
+    options.mode(0o600);
+    options
+}
+
+/// Opens, creating it if needed, a sidecar or guard file that only carries a lock.
+fn open_lock_file(path: &Path) -> io::Result<File> {
+    private_options()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(path)
 }
 
 /// Replaces `path` atomically: write to a unique temp file, sync it, rename
@@ -556,11 +564,7 @@ fn atomic_replace(path: &Path, payload: &[u8]) -> io::Result<()> {
         now_millis()
     ));
     let written = (|| -> io::Result<()> {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&temp)?;
+        let mut file = private_options().write(true).create_new(true).open(&temp)?;
         file.write_all(payload)?;
         file.sync_all()?;
         Ok(())
@@ -574,10 +578,6 @@ fn atomic_replace(path: &Path, payload: &[u8]) -> io::Result<()> {
         return Err(e);
     }
     sync_directory(parent)
-}
-
-fn sync_directory(path: &Path) -> io::Result<()> {
-    File::open(path)?.sync_all()
 }
 
 fn unlock_quietly(file: &File) {
@@ -724,6 +724,7 @@ mod tests {
         assert_eq!(read_stored_content(&dir.snapshot_path(&uuid(1))), "second");
     }
 
+    #[cfg(unix)]
     #[test]
     fn failed_write_preserves_previous_snapshot() {
         use std::os::unix::fs::PermissionsExt;
@@ -765,6 +766,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn failed_discard_keeps_live_ownership() {
         use std::os::unix::fs::PermissionsExt;
@@ -1024,6 +1026,7 @@ mod tests {
         assert!(dir.path().join("unrelated.txt").exists());
     }
 
+    #[cfg(unix)]
     #[test]
     fn recovery_storage_is_private_to_the_user() {
         use std::os::unix::fs::PermissionsExt;
@@ -1048,6 +1051,7 @@ mod tests {
         assert_eq!(lock_mode, 0o600);
     }
 
+    #[cfg(unix)]
     #[test]
     fn snapshot_symlink_is_replaced_without_touching_the_target() {
         use std::os::unix::fs::symlink;
@@ -1073,6 +1077,7 @@ mod tests {
         assert!(!dir.snapshot_path(&uuid(1)).exists());
     }
 
+    #[cfg(unix)]
     #[test]
     fn planted_lock_symlinks_are_refused_without_touching_the_target() {
         use std::os::unix::fs::symlink;
