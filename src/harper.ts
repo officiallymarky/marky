@@ -205,7 +205,10 @@ export function applySuggestionTr(
   lint: DocLint,
   suggestion: SpellSuggestion,
 ): Transaction | null {
-  if (state.doc.textBetween(lint.from, lint.to, "", "") !== lint.problem) {
+  // `buildLintInput` joins blocks with a newline, so the lint's problem text is
+  // single-block text: a range that only reads the same with an empty
+  // separator no longer describes the text the lint was computed from.
+  if (state.doc.textBetween(lint.from, lint.to, "\n", "") !== lint.problem) {
     return null;
   }
   // An edit can leave the range straddling a block boundary (a split paragraph
