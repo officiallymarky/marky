@@ -286,10 +286,15 @@ fn startup_document_from_argument(
 
 /// Document passed on the command line (`marky notes.md`), if any.
 #[tauri::command]
-fn startup_document(
+async fn startup_document(
     state: tauri::State<'_, DocumentIdentities>,
 ) -> Result<Option<Document>, String> {
-    startup_document_from_argument(&state, std::env::args().nth(1).as_deref())
+    let identities = state.inner().clone();
+    let argument = std::env::args().nth(1);
+    off_main_thread("Startup document", move || {
+        startup_document_from_argument(&identities, argument.as_deref())
+    })
+    .await
 }
 
 #[tauri::command]
@@ -316,25 +321,32 @@ async fn open_document(
 
 /// Re-reads a known path, used when adopting a file that changed on disk.
 #[tauri::command]
-fn load_document(
+async fn load_document(
     state: tauri::State<'_, DocumentIdentities>,
     path: String,
 ) -> Result<Document, String> {
-    read_tracked_document(&state, &path)
+    let identities = state.inner().clone();
+    off_main_thread("Open document", move || read_tracked_document(&identities, &path)).await
 }
 
 /// Records the version the frontend just adopted as this document's save
 /// baseline. A read that was superseded by newer edits must never become the
 /// baseline, or the next save would overwrite the outside version unnoticed.
+/// Only the in-memory identity map changes, so this needs no thread hop.
 #[tauri::command]
 fn adopt_document(state: tauri::State<'_, DocumentIdentities>, path: String) {
     state.adopt(&path);
 }
 
-/// Reports whether the file still matches the version the app read.
+/// Reports whether the file still matches the version the app read. This runs
+/// on every window focus change, so the stat happens off the calling thread.
 #[tauri::command]
-fn check_document(state: tauri::State<'_, DocumentIdentities>, path: String) -> DocumentStatus {
-    document_status(&state, &path)
+async fn check_document(
+    state: tauri::State<'_, DocumentIdentities>,
+    path: String,
+) -> Result<DocumentStatus, String> {
+    let identities = state.inner().clone();
+    off_main_thread("Document check", move || Ok(document_status(&identities, &path))).await
 }
 
 #[cfg(unix)]
@@ -682,16 +694,17 @@ fn set_window_title(app: AppHandle, name: String, dirty: bool) -> Result<(), Str
         .map_err(|e| format!("Could not set window title: {e}"))
 }
 
-/// Runs a recovery filesystem operation off the async runtime. The work is
-/// small, but the async runtime must never block on file IO.
-async fn recovery_result<T, F>(operation: F) -> Result<T, String>
+/// Runs a filesystem operation off the calling thread. The work is small, but
+/// a command that blocks the thread answering the window freezes it for as
+/// long as the operation takes (a slow or hung mount holds it for seconds).
+async fn off_main_thread<T, F>(task: &'static str, operation: F) -> Result<T, String>
 where
     T: Send + 'static,
     F: FnOnce() -> Result<T, String> + Send + 'static,
 {
     match tauri::async_runtime::spawn_blocking(operation).await {
         Ok(result) => result,
-        Err(e) => Err(format!("recovery task failed: {e}")),
+        Err(error) => Err(format!("{task} failed: {error}")),
     }
 }
 
@@ -704,7 +717,7 @@ async fn write_recovery(
 ) -> Result<(), String> {
     let store = store.inner().clone();
     let id = snapshot.id.clone();
-    recovery_result(move || {
+    off_main_thread("recovery task", move || {
         store
             .write(&snapshot)
             .map_err(|e| format!("failed to write recovery snapshot {id}: {e}"))
@@ -720,7 +733,7 @@ async fn list_recovery(
     store: tauri::State<'_, recovery::RecoveryStore>,
 ) -> Result<recovery::RecoveryListing, String> {
     let store = store.inner().clone();
-    recovery_result(move || Ok(store.list())).await
+    off_main_thread("recovery task", move || Ok(store.list())).await
 }
 
 /// Deletes exactly the recovery snapshot with this id; snapshots live in
@@ -731,7 +744,7 @@ async fn discard_recovery(
     id: String,
 ) -> Result<(), String> {
     let store = store.inner().clone();
-    recovery_result(move || {
+    off_main_thread("recovery task", move || {
         store
             .discard(&id)
             .map_err(|e| format!("failed to discard recovery snapshot {id}: {e}"))
@@ -747,7 +760,7 @@ async fn release_recovery(
     id: String,
 ) -> Result<(), String> {
     let store = store.inner().clone();
-    recovery_result(move || {
+    off_main_thread("recovery task", move || {
         store
             .release(&id)
             .map_err(|e| format!("failed to release recovery snapshot {id}: {e}"))
@@ -1021,7 +1034,7 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        atomic_write, atomic_write_with, document_status, lock_destination,
+        atomic_write, atomic_write_with, document_status, lock_destination, off_main_thread,
         read_tracked_document, read_tracked_document_with, save_to_path,
         startup_document_from_argument, sync_directory, ConflictKind, DocumentIdentities,
         FileIdentity,
@@ -1030,13 +1043,20 @@ mod tests {
     use std::io::{self, Read};
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    /// A unique directory per call: tests run in parallel, and two of them can
+    /// read the same clock value, which made this helper collide.
     fn temporary_directory() -> std::path::PathBuf {
+        static NEXT_DIRECTORY: std::sync::atomic::AtomicU64 =
+            std::sync::atomic::AtomicU64::new(0);
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path =
-            std::env::temp_dir().join(format!("marky-atomic-save-{}-{nonce}", std::process::id()));
+        let unique = NEXT_DIRECTORY.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "marky-atomic-save-{}-{nonce}-{unique}",
+            std::process::id()
+        ));
         fs::create_dir(&path).unwrap();
         path
     }
@@ -1261,6 +1281,19 @@ mod tests {
 
         result.unwrap();
         assert_eq!(new_inode, old_inode);
+    }
+
+    /// The thread answering the window must not be the one that touches the
+    /// filesystem: a slow or hung mount would freeze the window for as long as
+    /// the operation takes.
+    #[test]
+    fn filesystem_commands_run_off_the_calling_thread() {
+        let caller = std::thread::current().id();
+        let worker = tauri::async_runtime::block_on(off_main_thread("Test", || {
+            Ok(std::thread::current().id())
+        }))
+        .unwrap();
+        assert_ne!(worker, caller);
     }
 
     #[test]
