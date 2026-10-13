@@ -377,6 +377,34 @@ export function withDeadline<T>(
   });
 }
 
+export interface FailureReporter {
+  /** Reports `error` unless the current broken state was already reported. */
+  fail(error: unknown): void;
+  /** Clears the latch: the next failure is reported again. */
+  succeed(): void;
+}
+
+/**
+ * Reports the first failure and stays quiet until the next success. Spell
+ * check reruns on every edit, so a broken worker would otherwise raise one
+ * dialog per attempt for the same state.
+ */
+export function createFailureReporter(
+  report: (error: unknown) => void,
+): FailureReporter {
+  let reported = false;
+  return {
+    fail(error) {
+      if (reported) return;
+      reported = true;
+      report(error);
+    },
+    succeed() {
+      reported = false;
+    },
+  };
+}
+
 /**
  * Spell check for one editor instance. Re-reads the enabled flag on creation,
  * and persists ignored lints and dictionary words globally, so they survive
@@ -390,6 +418,8 @@ export function createSpellCheck(
     if (options.onError) options.onError("Spell check failed", error);
     else console.error("Spell check failed", error);
   };
+
+  const failures = createFailureReporter(report);
 
   let enabled = readSpellEnabled();
   let disposed = false;
@@ -485,8 +515,9 @@ export function createSpellCheck(
       releaseRetained();
       retained = { objects, source: input.text };
       setLints(mapLints(input, raw));
+      failures.succeed();
     } catch (error) {
-      if (!disposed && myGeneration === generation) report(error);
+      if (!disposed && myGeneration === generation) failures.fail(error);
     } finally {
       inFlight = false;
       if (queued) {

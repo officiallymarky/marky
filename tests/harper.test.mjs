@@ -5,6 +5,7 @@ import { EditorState } from "@milkdown/kit/prose/state";
 import {
   applySuggestionTr,
   buildLintInput,
+  createFailureReporter,
   mapLints,
   severityOf,
   spellPlugin,
@@ -261,4 +262,17 @@ test("a stalled worker becomes an error instead of waiting forever", { timeout: 
     /worker failed/,
   );
   assert.deepEqual(stalls, ["stalled"]);
+});
+
+test("a repeated failure is reported once until a run succeeds", () => {
+  const reported = [];
+  const failures = createFailureReporter((error) => reported.push(error));
+
+  failures.fail("first");
+  failures.fail("second");
+  assert.deepEqual(reported, ["first"]);
+
+  failures.succeed();
+  failures.fail("third");
+  assert.deepEqual(reported, ["first", "third"]);
 });
