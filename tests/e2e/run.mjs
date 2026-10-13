@@ -88,7 +88,6 @@ function connect(wsUrl) {
     },
   };
 }
-let port;
 
 async function startVite() {
   const server = spawn("pnpm", ["exec", "vite", "--port", String(PORT), "--strictPort"], {
@@ -160,6 +159,7 @@ let server;
 let chrome;
 let profile;
 let client;
+let port;
 try {
   server = await startVite();
   ({ chrome, profile, port } = await startChrome());

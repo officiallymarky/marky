@@ -355,6 +355,71 @@ export async function runScenarios(harness) {
     );
   });
 
+  await record("replace all rewrites the document in rich mode", async (expect) => {
+    harness.answer("Discard");
+    await open(harness, NOTES);
+    await keydown({ key: "f", ctrlKey: true });
+    const find = document.querySelector("#find-input");
+    find.value = "world";
+    find.dispatchEvent(new Event("input", { bubbles: true }));
+    await settle();
+
+    document.querySelector("#replace-toggle").click();
+    await settle();
+    expect("the replace row is shown", visible(document.querySelector("#replace-row")));
+    const replace = document.querySelector("#replace-input");
+    replace.value = "there";
+    replace.dispatchEvent(new Event("input", { bubbles: true }));
+    await settle();
+    document.querySelector("#replace-all").click();
+    await settle(200);
+
+    expect(
+      "the editor shows the replacement",
+      text(editor()).includes("Hello there"),
+      text(editor()),
+    );
+    expect("the replaced text is gone", !text(editor()).includes("world"), text(editor()));
+
+    // The replacement must reach the buffer, not just the rendered view.
+    harness.reset();
+    await menu(harness, "save");
+    const saved = harness.lastCall("save_document")?.args;
+    expect(
+      "the saved content holds the replacement",
+      saved?.content?.includes("Hello there"),
+      saved?.content,
+    );
+  });
+
+  await record("a mermaid block renders as a diagram", async (expect) => {
+    harness.answer("Discard");
+    await open(harness, {
+      path: "/tmp/diagram.md",
+      name: "diagram.md",
+      content: "# Diagram\n\n```mermaid\ngraph TD; A-->B;\n```\n",
+    });
+    await settledValue(
+      () => document.querySelector("#editor .mermaid-render svg")?.outerHTML.length ?? 0,
+    );
+
+    const rendered = document.querySelector("#editor .mermaid-render");
+    expect(
+      "the diagram is drawn and visible",
+      visible(rendered) && Boolean(rendered?.querySelector("svg")),
+      rendered?.className,
+    );
+    expect(
+      "no render error is shown",
+      !visible(document.querySelector("#editor .mermaid-error")),
+    );
+    expect(
+      "the fence source stays editable beside it",
+      document.querySelector("#editor .mermaid-block pre code")?.textContent?.includes("graph TD") === true,
+      document.querySelector("#editor .mermaid-block pre code")?.textContent,
+    );
+  });
+
   return {
     ok: scenarios.every((scenario) => scenario.ok),
     scenarios,
