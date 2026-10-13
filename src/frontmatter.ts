@@ -1,27 +1,36 @@
 interface SplitDocument {
+  /** A byte-order mark the file starts with, or "" when it has none. */
+  bom: string;
   /** Verbatim front-matter block including delimiters and trailing newline. */
   front: string | null;
-  /** Markdown body without the front-matter block. */
+  /** Markdown body without the front-matter block or the byte-order mark. */
   body: string;
 }
 
 /**
  * Splits a leading YAML front-matter block (`---` … `---`) off the document.
  * The block is kept byte-exact so YAML is never reformatted, and it may be
- * empty: `---` immediately followed by the closing fence. A byte-order mark in
- * front of the opening fence belongs to the block, so it survives a round trip,
- * and both fences may carry trailing spaces.
+ * empty: `---` immediately followed by the closing fence. A byte-order mark is
+ * neither front matter nor body, so it is reported on its own: the editor
+ * never sees it, and a save can put it back. Both fences may carry trailing
+ * spaces.
  */
 export function splitFrontmatter(md: string): SplitDocument {
-  const match = /^\uFEFF?---[ \t]*\r?\n(?:[\s\S]*?\r?\n)??---[ \t]*(?:\r?\n|$)/.exec(md);
-  if (!match) return { front: null, body: md };
-  return { front: match[0], body: md.slice(match[0].length) };
+  const bom = md.startsWith("\uFEFF") ? "\uFEFF" : "";
+  const rest = bom ? md.slice(bom.length) : md;
+  const match = /^---[ \t]*\r?\n(?:[\s\S]*?\r?\n)??---[ \t]*(?:\r?\n|$)/.exec(rest);
+  if (!match) return { bom, front: null, body: rest };
+  return { bom, front: match[0], body: rest.slice(match[0].length) };
 }
 
-/** Rejoins a front-matter block with a markdown body. */
-export function combineFrontmatter(front: string | null, body: string): string {
-  if (!front) return body;
-  return front.endsWith("\n") ? front + body : `${front}\n${body}`;
+/** Rejoins a document: byte-order mark, front-matter block, markdown body. */
+export function combineFrontmatter(
+  bom: string,
+  front: string | null,
+  body: string,
+): string {
+  const block = !front ? "" : front.endsWith("\n") ? front : `${front}\n`;
+  return `${bom}${block}${body}`;
 }
 
 /**

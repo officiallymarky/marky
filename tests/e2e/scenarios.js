@@ -427,6 +427,34 @@ export async function runScenarios(harness) {
     );
   });
 
+  await record("a byte-order mark survives a save", async (expect) => {
+    harness.answer("Discard");
+    await open(harness, {
+      path: "/tmp/bom.md",
+      name: "bom.md",
+      content: "\uFEFF# Title\n\nHello world\n",
+    });
+    harness.reset();
+    await menu(harness, "save");
+    const saved = harness.lastCall("save_document")?.args;
+
+    expect(
+      "the saved file still starts with the mark",
+      saved?.content?.startsWith("\uFEFF") === true,
+      JSON.stringify(saved?.content?.slice(0, 12)),
+    );
+    expect(
+      "the mark is not duplicated",
+      saved?.content?.indexOf("\uFEFF", 1) === -1,
+      JSON.stringify(saved?.content?.slice(0, 12)),
+    );
+    expect(
+      "the text is otherwise unchanged",
+      saved?.content === "\uFEFF# Title\n\nHello world\n",
+      JSON.stringify(saved?.content),
+    );
+  });
+
   return {
     ok: scenarios.every((scenario) => scenario.ok),
     scenarios,

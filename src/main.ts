@@ -108,6 +108,8 @@ const saveCurrentDocument = createSaveHandler(
 let rawMode = false;
 let modeRevision = 0;
 let frontContent: string | null = null;
+/** The current document's byte-order mark, or "" when it has none. */
+let documentBom = "";
 let lastTitle = "";
 let titleUpdates: Promise<void> = Promise.resolve();
 type TextSelectionSnapshot = {
@@ -121,6 +123,7 @@ type HistorySnapshot =
       kind: "rich";
       state: EditorState;
       front: string | null;
+      bom: string;
       frontSelection?: TextSelectionSnapshot;
     };
 const editHistory = new DocumentHistory<HistorySnapshot>();
@@ -147,7 +150,7 @@ function syncLiveContent() {
   const content = rawMode
     ? rawEditor.value
     : handle
-      ? combineFrontmatter(frontContent, handle.getMarkdown())
+      ? combineFrontmatter(documentBom, frontContent, handle.getMarkdown())
       : documentSession.state.content;
   if (content !== documentSession.state.content) {
     documentSession.state.update(content);
@@ -207,7 +210,7 @@ function updateFrontPanel() {
 
 function onUpdate(markdown: string) {
   if (rawMode || !documentReady) return;
-  documentSession.state.update(combineFrontmatter(frontContent, markdown));
+  documentSession.state.update(combineFrontmatter(documentBom, frontContent, markdown));
   refreshChrome();
   if (searchPanel.isOpen()) searchPanel.refresh();
 }
@@ -228,6 +231,7 @@ function historySnapshot(): HistorySnapshot {
     kind: "rich",
     state: handle!.snapshot(),
     front: frontContent,
+    bom: documentBom,
     ...(document.activeElement === frontEditor
       ? { frontSelection: textSelection(frontEditor) }
       : {}),
@@ -246,10 +250,12 @@ function restoreHistory(redo = false): void {
   if (snapshot.kind === "raw") {
     const split = splitFrontmatter(snapshot.content);
     frontContent = split.front;
+    documentBom = split.bom;
     handle.restore(split.body);
     richSource = snapshot.content;
   } else {
     frontContent = snapshot.front;
+    documentBom = snapshot.bom;
     handle.restore(snapshot.state);
     richSource = null;
   }
@@ -259,7 +265,7 @@ function restoreHistory(redo = false): void {
     rawEditor.value =
       snapshot.kind === "raw"
         ? snapshot.content
-        : combineFrontmatter(frontContent, handle.getMarkdown());
+        : combineFrontmatter(documentBom, frontContent, handle.getMarkdown());
     richSource = rawEditor.value;
     const selection =
       snapshot.kind === "raw"
@@ -350,6 +356,7 @@ async function buildDocument(
   statusRaw.setAttribute("aria-pressed", String(rawMode));
   const split = splitFrontmatter(doc.content);
   frontContent = split.front;
+  documentBom = split.bom;
   updateFrontPanel();
   handle = await createEditor(
     editorRoot,
@@ -361,8 +368,8 @@ async function buildDocument(
     (before, after, join) => {
       if (!documentReady || rawMode || documentSession !== session) return;
       editHistory.record(
-        { kind: "rich", state: before, front: frontContent },
-        { kind: "rich", state: after, front: frontContent },
+        { kind: "rich", state: before, front: frontContent, bom: documentBom },
+        { kind: "rich", state: after, front: frontContent, bom: documentBom },
         join,
       );
     },
@@ -378,7 +385,7 @@ async function buildDocument(
   } else {
     handle.focus();
     // Canonical Markdown on a normal open is the saved baseline.
-    session.state.load(combineFrontmatter(frontContent, handle.getMarkdown()));
+    session.state.load(combineFrontmatter(documentBom, frontContent, handle.getMarkdown()));
   }
   documentReady = true;
   if (!recovered && doc.path) await rememberDocument(doc.path);
@@ -464,7 +471,7 @@ async function doFrontMatter() {
   editHistory.record(before, historySnapshot());
   historyBoundary();
   documentSession.state.update(
-    combineFrontmatter(frontContent, handle?.getMarkdown() ?? ""),
+    combineFrontmatter(documentBom, frontContent, handle?.getMarkdown() ?? ""),
   );
   refreshChrome();
 }
@@ -582,6 +589,7 @@ function setRawMode(on: boolean) {
     const split = splitFrontmatter(rawEditor.value);
     if (rawEditor.value !== richSource) handle.restore(split.body);
     frontContent = split.front;
+    documentBom = split.bom;
     rawMode = false;
     rawEditor.hidden = true;
     editorRoot.hidden = false;
@@ -589,7 +597,7 @@ function setRawMode(on: boolean) {
     handle.spelling.setEnabled(readSpellEnabled());
     handle.focus();
     documentSession.state.update(
-      combineFrontmatter(frontContent, handle.getMarkdown()),
+      combineFrontmatter(documentBom, frontContent, handle.getMarkdown()),
     );
   }
 
@@ -841,7 +849,7 @@ for (const editor of [rawEditor, frontEditor]) {
         ? value.endsWith("\n") ? value : `${value}\n`
         : null;
       documentSession.state.update(
-        combineFrontmatter(frontContent, handle.getMarkdown()),
+        combineFrontmatter(documentBom, frontContent, handle.getMarkdown()),
       );
       autoGrow(frontEditor);
     }
@@ -968,7 +976,7 @@ appWindow.onFocusChanged(async ({ payload: focused }) => {
     isDirty: () =>
       session.state.dirty ||
       (editor !== null &&
-        combineFrontmatter(frontContent, editor.getMarkdown()) !==
+        combineFrontmatter(documentBom, frontContent, editor.getMarkdown()) !==
           session.state.content),
     load: () => loadDocument(path),
     replace: replaceDocument,
