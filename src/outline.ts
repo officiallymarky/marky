@@ -1,6 +1,6 @@
 import type { MarkdownNode } from "@milkdown/kit/transformer";
-import { collectHeadings, type HeadingRecord, type TocHeading } from "./toc";
-import { splitFrontmatter } from "./frontmatter";
+import { collectHeadings, type HeadingRecord, type TocHeading } from "./toc.ts";
+import { splitFrontmatter } from "./frontmatter.ts";
 
 /** Largest heading top margin (h1: 0.9em, ~27px) plus slack, so a section stays
  *  current until its heading actually clears the viewport top. */
@@ -15,7 +15,12 @@ export function collectSourceHeadings(
   const offset = source.length - body.length;
   const records: HeadingRecord[] = [];
   const text = (node: MarkdownNode): string => {
-    if (node.type === "image") return String(node.alt ?? "");
+    // Both image forms describe themselves in `alt`. A reference image has no
+    // children and no value, so without this a heading holding only one reads
+    // as empty and disappears from the outline.
+    if (node.type === "image" || node.type === "imageReference") {
+      return String(node.alt ?? "");
+    }
     return node.children?.map(text).join("") ?? String(node.value ?? "");
   };
   const walk = (node: MarkdownNode): void => {
