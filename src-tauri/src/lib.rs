@@ -1445,8 +1445,8 @@ mod tests {
     }
 
     /// A refusal that is not "unsupported" may hide metadata the copy cannot
-    /// carry, so the file keeps its inode. `trusted.*` answers EPERM.
-    #[cfg(unix)]
+    /// carry, so the file keeps its inode. Linux answers EPERM for `trusted.*`.
+    #[cfg(target_os = "linux")]
     #[test]
     fn atomic_write_stays_in_place_when_an_attribute_is_denied() {
         use std::os::unix::fs::MetadataExt;

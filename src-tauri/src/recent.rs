@@ -91,7 +91,7 @@ impl RecentStore {
             }
             let content = serde_json::to_string(&paths).map_err(io::Error::other)?;
             super::atomic_write(&target, &content).map_err(super::WriteFailure::into_io)?;
-            File::open(&self.root)?.sync_all()?;
+            super::sync_directory(&self.root)?;
             Ok(paths)
         })();
         let unlocked = guard.unlock();
