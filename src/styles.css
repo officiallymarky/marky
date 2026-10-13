@@ -717,6 +717,15 @@ body.has-frontmatter #editor {
   max-width: 100%;
 }
 
+.md-image-blocked:not([hidden]) {
+  display: inline-block;
+  padding: 0.1em 0.5em;
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 0.9em;
+}
+
 .ProseMirror hr {
   border: none;
   border-top: 2px solid var(--border);

@@ -478,6 +478,38 @@ export async function runScenarios(harness) {
     );
   });
 
+  await record("local images load and remote images wait to be allowed", async (expect) => {
+    harness.answer("Discard");
+    await open(harness, {
+      path: "/tmp/pictures/images.md",
+      name: "images.md",
+      content: "![local](img/a.png) ![remote](https://example.invalid/b.png)\n",
+    });
+    const image = (alt) => document.querySelector(`#editor img[alt="${alt}"]`);
+    const placeholder = () => document.querySelector("#editor .md-image-blocked:not([hidden])");
+
+    expect(
+      "a relative image loads from the document's folder",
+      image("local")?.getAttribute("src") === "/tmp/pictures/img/a.png",
+      image("local")?.getAttribute("src"),
+    );
+    expect(
+      "a remote image is not requested",
+      !image("remote")?.hasAttribute("src") && !visible(image("remote")),
+      image("remote")?.getAttribute("src"),
+    );
+    expect("a placeholder stands in for it", text(placeholder()) === "remote", text(placeholder()));
+
+    await menu(harness, "remote-images");
+    expect(
+      "allowing remote images loads it",
+      image("remote")?.getAttribute("src") === "https://example.invalid/b.png" && !placeholder(),
+      image("remote")?.getAttribute("src"),
+    );
+    await menu(harness, "remote-images");
+    expect("turning them off again blocks it", Boolean(placeholder()));
+  });
+
   return {
     ok: scenarios.every((scenario) => scenario.ok),
     scenarios,

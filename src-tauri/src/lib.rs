@@ -15,6 +15,7 @@ use tauri::Emitter;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_dialog::{DialogExt, FilePath};
 
+mod local_image;
 mod native_menu;
 #[cfg(unix)]
 mod recovery;
@@ -944,6 +945,12 @@ pub fn run() {
         .manage(DocumentIdentities::default())
         .manage(KnownPaths::default())
         .plugin(tauri_plugin_dialog::init())
+        .register_asynchronous_uri_scheme_protocol(local_image::SCHEME, |_, request, responder| {
+            // Reading the file must not hold up the thread answering the window.
+            tauri::async_runtime::spawn_blocking(move || {
+                responder.respond(local_image::respond(&request))
+            });
+        })
         .invoke_handler(tauri::generate_handler![
             startup_document,
             open_document,
@@ -1100,6 +1107,7 @@ pub fn run() {
                 .separator()
                 .text("raw", "Raw Mode (Ctrl+/)")
                 .text("spell", "Spell & Grammar Check (F7)")
+                .text("remote-images", "Remote Images")
                 .build()?;
 
             let alert = SubmenuBuilder::new(app, "Alert")

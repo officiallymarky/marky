@@ -70,6 +70,11 @@ import { runRecoveryPrompt } from "./recovery-prompt";
 import { createDocumentTransitions } from "./document-transition";
 import { ALERT_KINDS } from "./alerts";
 import { menuOption } from "./menu-action";
+import {
+  remoteImagesAllowed,
+  setImageDocument,
+  setRemoteImagesAllowed,
+} from "./images";
 
 const editorRoot = document.getElementById("editor")!;
 const statusWords = document.getElementById("status-words")!;
@@ -137,10 +142,14 @@ const recovery = createRecoveryJournal({
   showError: (error) => void showError("Recovery backup failed", error),
 });
 
+/** The file a session's text came from, including a recovered copy's original. */
+const sourcePath = (session = documentSession) =>
+  session.path ?? session.recoverySourcePath ?? null;
+
 function recoverySnapshot(session = documentSession): RecoveryWrite {
   return {
     id: session.recoveryId,
-    path: session.path ?? session.recoverySourcePath ?? null,
+    path: sourcePath(session),
     name: session.name,
     content: session.state.content,
   };
@@ -188,6 +197,7 @@ function refreshChrome() {
   statusChars.textContent = `${body.length} chars`;
   statusPath.textContent = documentSession.path ?? "unsaved";
   statusPath.title = documentSession.path ?? "";
+  setImageDocument(sourcePath());
   if (documentReady) {
     recovery.schedule(recoverySnapshot(), dirty);
   }
@@ -343,6 +353,8 @@ async function buildDocument(
     recoverySourcePath: recovered?.path,
   };
   const session = documentSession;
+  // Before the editor mounts, so its images never resolve against the old file.
+  setImageDocument(sourcePath(session));
   session.state.load(doc.content);
   editHistory.clear();
   richSource = null;
@@ -1051,6 +1063,8 @@ async function menuAction(action: string): Promise<void> {
       return void setRawMode(!rawMode);
     case "spell":
       return void toggleSpellCheck();
+    case "remote-images":
+      return setRemoteImagesAllowed(!remoteImagesAllowed());
     case "theme":
       return void cycleTheme();
     case "undo":

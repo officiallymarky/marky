@@ -44,6 +44,18 @@ Code blocks tagged `mermaid` render live diagrams beneath their editable source,
 with error hints for invalid syntax. See the
 [Mermaid showcase](examples/mermaid-showcase.md) for examples.
 
+### Images
+
+Images display in the rich editor. Relative paths resolve against the
+document's folder, as in other Markdown viewers; absolute paths and `file:`
+URLs are read as written. A relative image in an untitled document appears once
+the document is saved. The app reads only image files (PNG, JPEG, GIF, WebP,
+AVIF, SVG, BMP, ICO) this way, never other files a document names.
+
+Remote images are not loaded by default, because fetching one tells its server
+that you opened the document. A placeholder shows the image's alt text instead.
+**View → Remote Images** turns loading on or off, and the choice persists.
+
 ### Search and proofreading
 
 Find and replace includes live match highlighting, a match counter,
@@ -258,6 +270,10 @@ release binary is at `src-tauri/target/release/marky`.
 marky sets `WEBKIT_DISABLE_DMABUF_RENDERER=1` at startup to avoid WebKitGTK
 rendering failures on NVIDIA Wayland. No manual environment setting is needed
 for the packaged application.
+
+Local images do not display under `just dev`: the development page is served
+over `http://`, and WebKitGTK does not load the app's image protocol into it.
+Builds load the page from the app itself, where images work.
 
 The WebKit inspector is disabled in both development and release builds. For a
 debugging session, set `devtools` to `true` in `src-tauri/tauri.conf.json` and

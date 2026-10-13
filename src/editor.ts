@@ -34,6 +34,7 @@ import { clipboard } from "@milkdown/kit/plugin/clipboard";
 import { trailing } from "@milkdown/kit/plugin/trailing";
 import { getMarkdown, callCommand } from "@milkdown/kit/utils";
 import { mermaidPlugin } from "./mermaid";
+import { imagePlugin } from "./images";
 import { prism, prismConfig } from "@milkdown/plugin-prism";
 import { codeLanguageAliases, codeLanguages } from "./highlight";
 import { linkInputRule } from "./inline";
@@ -248,6 +249,7 @@ export async function createEditor(
     .use(clipboard)
     .use(trailing)
     .use(mermaidPlugin)
+    .use(imagePlugin)
     .use(linkInputRule)
     .use(tocRemark)
     .use(tocNode)
