@@ -26,6 +26,12 @@ lint:
 typecheck:
     pnpm exec tsc --noEmit
 
+
+# Scripted UI checks in headless Chrome (needs a Chromium build; override with
+# CHROME=). Kept out of `verify`: it starts a dev server and a browser.
+e2e:
+    node tests/e2e/run.mjs
+
 # Non-mutating, offline checks: tests + lint + typecheck + cargo check
 verify: lint typecheck test
     cargo check --manifest-path src-tauri/Cargo.toml
