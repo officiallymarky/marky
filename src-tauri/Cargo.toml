@@ -15,15 +15,20 @@ name = "marky_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-build = { version = "~2.6", features = [] }
+# Not used directly: tauri 2.11 accepts tauri-codegen 2.7, whose Windows output
+# calls an API that only exists in tauri 2.12. Drop this when tauri moves to 2.12.
+tauri-codegen = { version = "~2.6", default-features = false }
 
 [dependencies]
 tauri = { version = "~2.11", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri-plugin-dialog = "~2.7"
-xattr = "1.6.1" # Preserve ACLs and extended attributes during atomic saves.
 percent-encoding = "2.3.2" # Decode file paths in marky-image protocol requests.
+
+[target.'cfg(unix)'.dependencies]
+xattr = "1.6.1" # Preserve ACLs and extended attributes during atomic saves.
 
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = "0.18.2"

@@ -2,6 +2,7 @@ use serde::Deserialize;
 
 /// RGB values come from the active CSS palette; numeric values cannot inject CSS.
 #[derive(Deserialize)]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub struct MenuPalette {
     bg: u32,
     fg: u32,

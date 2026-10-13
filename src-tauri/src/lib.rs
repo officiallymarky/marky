@@ -87,6 +87,8 @@ impl FileIdentity {
             .unwrap_or_default();
         #[cfg(unix)]
         let inode = self.inode;
+        #[cfg(not(unix))]
+        let inode = 0;
         format!("{}:{modified}:{inode}", self.length)
     }
 }
@@ -231,15 +233,18 @@ fn read_tracked_document_with(
     read_content: impl FnOnce(&mut fs::File) -> io::Result<String>,
 ) -> Result<Document, String> {
     let read = || -> io::Result<(String, FileIdentity)> {
+        let not_regular = || io::Error::new(io::ErrorKind::InvalidInput, "not a regular file");
+        // Opening a FIFO blocks until a writer appears, and Windows refuses to
+        // open a directory at all, so the type is checked before opening too.
+        if !fs::metadata(path)?.is_file() {
+            return Err(not_regular());
+        }
         let mut file = fs::File::open(path)?;
         let metadata = file.metadata()?;
         // A directory, device or FIFO never ends: reading one would hang or
         // exhaust memory before any length check could reject it.
         if !metadata.file_type().is_file() {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "not a regular file",
-            ));
+            return Err(not_regular());
         }
         let identity = FileIdentity::from_metadata(&metadata);
         if identity.length > MAX_DOCUMENT_BYTES {
@@ -490,6 +495,16 @@ fn write_extended_attributes(
     Ok(())
 }
 
+#[cfg(not(unix))]
+fn read_extended_attributes(_: &Path) -> io::Result<Vec<(std::ffi::OsString, Vec<u8>)>> {
+    Err(io::ErrorKind::Unsupported.into())
+}
+
+#[cfg(not(unix))]
+fn write_extended_attributes(_: &Path, _: &[(std::ffi::OsString, Vec<u8>)]) -> io::Result<()> {
+    Err(io::ErrorKind::Unsupported.into())
+}
+
 /// How a failed write left the file. The caller only needs to know whether the
 /// replacement is already committed, so it can keep the save baseline in step
 /// with what is on disk while still reporting the failure.
@@ -570,7 +585,6 @@ fn atomic_write(path: &Path, content: &str) -> Result<FileIdentity, WriteFailure
 /// Replaces `path` with `content`, carrying the extended attributes that
 /// `read_attributes` reports. The reader is injected so a filesystem without
 /// extended-attribute support can be exercised without one.
-#[cfg(unix)]
 fn atomic_write_with(
     path: &Path,
     content: &str,
@@ -616,7 +630,6 @@ fn atomic_write_with(
         return write_in_place(&write_path, content);
     }
 
-    #[cfg(unix)]
     let attributes = match metadata.as_ref() {
         Some(_) => match read_attributes(&write_path) {
             Ok(attributes) => Some(attributes),
@@ -692,7 +705,6 @@ fn atomic_write_with(
             return Err(WriteFailure::Uncommitted(error));
         }
 
-        #[cfg(unix)]
         if let Some(attributes) = &attributes {
             match write_extended_attributes(&temp_path, attributes) {
                 Ok(()) => {}
@@ -758,6 +770,11 @@ fn atomic_write_with(
 #[cfg(unix)]
 fn sync_directory(dir: &Path) -> io::Result<()> {
     fs::File::open(dir)?.sync_all()
+}
+
+#[cfg(not(unix))]
+fn sync_directory(_: &Path) -> io::Result<()> {
+    Ok(())
 }
 
 #[tauri::command]
@@ -1142,13 +1159,17 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        atomic_write, atomic_write_with, chosen_path, document_status, lock_destination,
-        MAX_DOCUMENT_BYTES, off_main_thread, read_tracked_document, read_tracked_document_with,
-        register_menu_path, require_known, save_to_path, startup_document_from_argument,
-        sync_directory, ConflictKind, DocumentIdentities, FileIdentity, FilePath, KnownPaths,
+        atomic_write, document_status, lock_destination, MAX_DOCUMENT_BYTES, off_main_thread,
+        read_tracked_document, read_tracked_document_with, register_menu_path, require_known,
+        save_to_path, startup_document_from_argument, sync_directory, ConflictKind,
+        DocumentIdentities, FileIdentity, KnownPaths,
     };
+    #[cfg(unix)]
+    use super::{atomic_write_with, chosen_path, FilePath};
     use std::fs;
-    use std::io::{self, Read};
+    #[cfg(unix)]
+    use std::io;
+    use std::io::Read;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     /// A unique directory per call: tests run in parallel, and two of them can
