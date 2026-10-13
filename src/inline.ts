@@ -13,7 +13,7 @@ import type { EditorState, Transaction } from "@milkdown/kit/prose/state";
  * `[label](` that reaches the caret: an earlier literal mention such as
  * `[t](u)` in the same paragraph must not swallow the link being typed.
  */
-const linkPattern = /(?<lead>.*)\[(?<text>[^\]]+)\]\(.+$/;
+const linkPattern = /(?<lead>.*)\[(?<text>[^\]]+)\]\((?<dest>.+)$/;
 
 const asciiPunctuation = /^[!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~]$/;
 
@@ -83,7 +83,8 @@ function applyLinkInputRule(
 ): Transaction | null {
   const label = match.groups?.text;
   const lead = match.groups?.lead;
-  if (!label || lead === undefined) return null;
+  const dest = match.groups?.dest;
+  if (!label || lead === undefined || dest === undefined) return null;
   // The match may cover text in front of the link, so the `[` is offset by it.
   const linkStart = start + lead.length;
   const destStart = linkStart + 1 + label.length; // position of the closing `]`
@@ -95,9 +96,7 @@ function applyLinkInputRule(
   if (state.doc.textBetween(destStart, destStart + 2, null, "\ufffc") !== "](") {
     return null;
   }
-  const parsed = parseLinkDestination(
-    match[0].slice(lead.length + label.length + 3),
-  );
+  const parsed = parseLinkDestination(dest);
   if (!parsed || !parsed.href) return null;
 
   const link = linkType.create({ href: parsed.href, title: parsed.title });
