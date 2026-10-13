@@ -470,11 +470,7 @@ export function createSpellCheck(
     const version = docVersion;
     const myGeneration = generation;
     try {
-      const { raw, objects } = await withDeadline(
-        lintText(input.text),
-        LINT_DEADLINE_MS,
-        abandonLinter,
-      );
+      const { raw, objects } = await withWorkerDeadline(lintText(input.text));
       if (disposed || myGeneration !== generation) {
         release(objects);
         return;
@@ -542,8 +538,8 @@ export function createSpellCheck(
     if (!active || !retained || !entry) return;
     popover.hide();
     try {
-      await active.ignoreLints(retained.source, [entry]);
-      store(IGNORED_KEY, await active.exportIgnoredLints());
+      await withWorkerDeadline(active.ignoreLints(retained.source, [entry]));
+      store(IGNORED_KEY, await withWorkerDeadline(active.exportIgnoredLints()));
       requestRun(0);
     } catch (error) {
       report(error);
@@ -555,8 +551,11 @@ export function createSpellCheck(
     if (!active) return;
     popover.hide();
     try {
-      await active.importWords([lint.problem]);
-      store(WORDS_KEY, JSON.stringify(await active.exportWords()));
+      await withWorkerDeadline(active.importWords([lint.problem]));
+      store(
+        WORDS_KEY,
+        JSON.stringify(await withWorkerDeadline(active.exportWords())),
+      );
       requestRun(0);
     } catch (error) {
       report(error);
@@ -579,6 +578,15 @@ export function createSpellCheck(
     linter = null;
     linterPromise = null;
     if (abandoned) shutdownLinter(abandoned);
+  }
+
+  /**
+   * Runs one worker call with the stall deadline. Every call into the worker
+   * needs it: a worker that stops answering leaves its promise unsettled, so
+   * without a deadline the caller waits forever and reports nothing.
+   */
+  function withWorkerDeadline<T>(work: Promise<T>): Promise<T> {
+    return withDeadline(work, LINT_DEADLINE_MS, abandonLinter);
   }
 
   function ensureLinter(): Promise<Linter> {
