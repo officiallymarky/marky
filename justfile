@@ -32,8 +32,10 @@ typecheck:
 e2e:
     node tests/e2e/run.mjs
 
-# Non-mutating, offline checks: tests + lint + typecheck + cargo check
-verify: lint typecheck test
+# Non-mutating, offline checks: tests + lint + typecheck + cargo check + secret
+# scan. The scan is part of the gate so that it cannot be forgotten; a machine
+# without gitleaks reports the skipped scan instead of failing the gate.
+verify: lint typecheck test verify-secrets
     cargo check --manifest-path src-tauri/Cargo.toml
 
 # Dependency vulnerability + secret scans. Both always run even when the other
@@ -43,8 +45,31 @@ scan:
     set -uo pipefail
     status=0
     just dependency-security || status=1
-    gitleaks dir . --redact --max-target-megabytes 1 || status=1
+    just secret-scan || status=1
     exit "$status"
+
+# Secret scan of the working tree. `.gitleaks.toml` excludes build output, so
+# only authored files are reported; files over 1 MB are skipped, which limits
+# coverage of large bundles and vendored blobs.
+secret-scan:
+    gitleaks dir . --redact --max-target-megabytes 1
+
+# The gate's view of the secret scan. `secret-scan` itself stays strict: the
+# pre-push hook must fail closed rather than pass when no scanner is present.
+verify-secrets:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! command -v gitleaks >/dev/null 2>&1; then
+        echo "secret scan skipped: gitleaks is not installed"
+        exit 0
+    fi
+    just secret-scan
+
+# Installs this repository's Git hooks. Hooks are not versioned, so this is the
+# setup step for a fresh clone. The pre-push hook runs `just secret-scan`: the
+# secret scan is the one check that must pass before content leaves a machine.
+install-hooks:
+    install -Dm755 scripts/hooks/pre-push .git/hooks/pre-push
 
 # Online advisory checks for lockfiles and identifiable dependencies embedded
 # in Mermaid's shipped ESM distributions. No dependency code is executed.

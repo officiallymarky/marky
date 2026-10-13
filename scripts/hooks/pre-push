@@ -1,0 +1,14 @@
+#!/bin/sh
+# Runs before `git push`. The secret scan is the one check that must pass before
+# content leaves this machine; the dependency scan needs the network and a
+# clean checkout, so it stays in CI. A finding here exits non-zero, which makes
+# Git refuse the push.
+#
+# Installed by `just install-hooks` (hooks are not versioned).
+#
+# The scan reads the working tree, and gitleaks does not honour .gitignore, so
+# a secret sitting in an ignored local file also blocks the push. That is the
+# intended reading here: a secret in the tree is worth knowing about before
+# anything leaves the machine. `git push --no-verify` skips the hook.
+set -e
+exec just secret-scan
