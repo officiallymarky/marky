@@ -65,6 +65,7 @@ import {
   type RecoverySnapshot,
   type RecoveryWrite,
 } from "./recovery";
+import { createDocumentTransitions } from "./document-transition";
 
 const editorRoot = document.getElementById("editor")!;
 const statusWords = document.getElementById("status-words")!;
@@ -278,7 +279,22 @@ function restoreHistory(redo = false): void {
   outlinePanel.refresh();
 }
 
+const transitions = createDocumentTransitions();
+
+/**
+ * Switches the editor to `doc`. Rebuilds are serialized and only the newest
+ * request runs, so two transitions (a reload and an Open, say) can never mount
+ * two editors or leave the session and the handle describing different files.
+ */
 async function replaceDocument(
+  doc: OpenedDocument,
+  recovered?: RecoverySnapshot,
+): Promise<void> {
+  await transitions.run(() => rebuildDocument(doc, recovered));
+}
+
+/** Rebuilds the editor for `doc`; `transitions` guarantees it runs alone. */
+async function rebuildDocument(
   doc: OpenedDocument,
   recovered?: RecoverySnapshot,
 ) {
