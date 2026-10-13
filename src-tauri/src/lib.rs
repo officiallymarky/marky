@@ -440,6 +440,18 @@ fn canonicalize_for_write(path: &Path) -> io::Result<PathBuf> {
 /// bytes. That identity comes from the written descriptor, never from a later
 /// stat of the pathname, which another writer may already have replaced.
 fn atomic_write(path: &Path, content: &str) -> Result<FileIdentity, WriteFailure> {
+    atomic_write_with(path, content, read_extended_attributes)
+}
+
+/// Replaces `path` with `content`, carrying the extended attributes that
+/// `read_attributes` reports. The reader is injected so a filesystem without
+/// extended-attribute support can be exercised without one.
+#[cfg(unix)]
+fn atomic_write_with(
+    path: &Path,
+    content: &str,
+    read_attributes: impl Fn(&Path) -> io::Result<Vec<(std::ffi::OsString, Vec<u8>)>>,
+) -> Result<FileIdentity, WriteFailure> {
     let write_path = match fs::symlink_metadata(path) {
         Ok(metadata) if metadata.file_type().is_symlink() => canonicalize_for_write(path)?,
         Ok(_) => path.to_path_buf(),
@@ -482,8 +494,13 @@ fn atomic_write(path: &Path, content: &str) -> Result<FileIdentity, WriteFailure
 
     #[cfg(unix)]
     let attributes = match metadata.as_ref() {
-        Some(_) => match read_extended_attributes(&write_path) {
+        Some(_) => match read_attributes(&write_path) {
             Ok(attributes) => Some(attributes),
+            // A filesystem that cannot store extended attributes has none to
+            // preserve, so the replacement stays atomic. Any other failure may
+            // hide metadata this write cannot copy, so the file is rewritten in
+            // place instead of being replaced.
+            Err(error) if error.kind() == io::ErrorKind::Unsupported => None,
             Err(_) => return write_in_place(&write_path, content),
         },
         None => None,
@@ -543,10 +560,16 @@ fn atomic_write(path: &Path, content: &str) -> Result<FileIdentity, WriteFailure
 
         #[cfg(unix)]
         if let Some(attributes) = &attributes {
-            if write_extended_attributes(&temp_path, attributes).is_err() {
-                drop(file);
-                let _ = fs::remove_file(&temp_path);
-                return write_in_place(&write_path, content);
+            match write_extended_attributes(&temp_path, attributes) {
+                Ok(()) => {}
+                // The replacement cannot store them either: the atomic write
+                // matters more than a copy the filesystem cannot keep.
+                Err(error) if error.kind() == io::ErrorKind::Unsupported => {}
+                Err(_) => {
+                    drop(file);
+                    let _ = fs::remove_file(&temp_path);
+                    return write_in_place(&write_path, content);
+                }
             }
         }
 
@@ -998,12 +1021,13 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        atomic_write, document_status, lock_destination, read_tracked_document,
-        read_tracked_document_with, save_to_path, startup_document_from_argument, sync_directory,
-        ConflictKind, DocumentIdentities, FileIdentity,
+        atomic_write, atomic_write_with, document_status, lock_destination,
+        read_tracked_document, read_tracked_document_with, save_to_path,
+        startup_document_from_argument, sync_directory, ConflictKind, DocumentIdentities,
+        FileIdentity,
     };
     use std::fs;
-    use std::io::Read;
+    use std::io::{self, Read};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temporary_directory() -> std::path::PathBuf {
@@ -1191,6 +1215,52 @@ mod tests {
         result.unwrap();
         assert_ne!(new_inode, old_inode);
         assert_eq!(value.as_deref(), Some(b"saved metadata".as_slice()));
+    }
+
+    /// A filesystem that cannot store extended attributes has none to preserve,
+    /// so the save must still replace the file rather than truncate it.
+    #[cfg(unix)]
+    #[test]
+    fn atomic_write_replaces_the_file_where_extended_attributes_are_unsupported() {
+        use std::os::unix::fs::MetadataExt;
+
+        let directory = temporary_directory();
+        let path = directory.join("notes.md");
+        fs::write(&path, "old content").unwrap();
+        let old_inode = fs::metadata(&path).unwrap().ino();
+
+        let result = atomic_write_with(&path, "new content", |_| {
+            Err(io::Error::from(io::ErrorKind::Unsupported))
+        });
+        let new_inode = fs::metadata(&path).unwrap().ino();
+        let contents = fs::read_to_string(&path).unwrap();
+        fs::remove_dir_all(directory).unwrap();
+
+        result.unwrap();
+        assert_eq!(contents, "new content");
+        assert_ne!(new_inode, old_inode, "the file must be replaced, not truncated");
+    }
+
+    /// Any other read failure may hide metadata the write cannot copy, so the
+    /// file keeps its inode: an in-place write preserves what it cannot read.
+    #[cfg(unix)]
+    #[test]
+    fn atomic_write_stays_in_place_when_attributes_cannot_be_read() {
+        use std::os::unix::fs::MetadataExt;
+
+        let directory = temporary_directory();
+        let path = directory.join("notes.md");
+        fs::write(&path, "old content").unwrap();
+        let old_inode = fs::metadata(&path).unwrap().ino();
+
+        let result = atomic_write_with(&path, "new content", |_| {
+            Err(io::Error::from(io::ErrorKind::PermissionDenied))
+        });
+        let new_inode = fs::metadata(&path).unwrap().ino();
+        fs::remove_dir_all(directory).unwrap();
+
+        result.unwrap();
+        assert_eq!(new_inode, old_inode);
     }
 
     #[test]
