@@ -169,3 +169,16 @@ test("unbalanced or incomplete destinations stay raw text", () => {
   const junk = stateWithRuns([{ text: "[a](b)c" }]);
   assert.equal(typeChar(junk, "d"), null);
 });
+
+test("a link typed after a literal bracket mention still converts", () => {
+  // The earlier `[t](u)` mention is not a link, so the typed one must win
+  // rather than the leftmost `[label](` in the paragraph.
+  const state = stateWithRuns([
+    { text: "Use [t](u) for links [docs](https://x" },
+  ]);
+  const converted = typeChar(state, ")");
+
+  assert.ok(converted, "the typed link should convert");
+  assert.equal(converted.doc.textContent, "Use [t](u) for links docs");
+  assert.equal(linkMarkOf(converted)?.attrs.href, "https://x");
+});

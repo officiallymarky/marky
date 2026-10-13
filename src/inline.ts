@@ -9,8 +9,11 @@ import type { EditorState, Transaction } from "@milkdown/kit/prose/state";
  * least one character, ending at the caret. It is intentionally loose —
  * balanced parentheses and backslash escapes cannot be expressed by a bounded
  * regex — so `parseLinkDestination` decides whether the pattern is complete.
+ * The leading `lead` group is greedy, so the pattern starts at the *last*
+ * `[label](` that reaches the caret: an earlier literal mention such as
+ * `[t](u)` in the same paragraph must not swallow the link being typed.
  */
-const linkPattern = /\[(?<text>[^\]]+)\]\(.+$/;
+const linkPattern = /(?<lead>.*)\[(?<text>[^\]]+)\]\(.+$/;
 
 const asciiPunctuation = /^[!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~]$/;
 
@@ -79,18 +82,22 @@ function applyLinkInputRule(
   linkType: MarkType,
 ): Transaction | null {
   const label = match.groups?.text;
-  if (!label) return null;
-  const closeIndex = match[0].indexOf("]");
-  const destStart = start + 1 + label.length; // position of the closing `]`
+  const lead = match.groups?.lead;
+  if (!label || lead === undefined) return null;
+  // The match may cover text in front of the link, so the `[` is offset by it.
+  const linkStart = start + lead.length;
+  const destStart = linkStart + 1 + label.length; // position of the closing `]`
   // The regex matched the parent's text projection; verify it still lines up
   // with the actual document before mutating anything.
-  if (state.doc.textBetween(start, start + 1, null, "\ufffc") !== "[") {
+  if (state.doc.textBetween(linkStart, linkStart + 1, null, "\ufffc") !== "[") {
     return null;
   }
   if (state.doc.textBetween(destStart, destStart + 2, null, "\ufffc") !== "](") {
     return null;
   }
-  const parsed = parseLinkDestination(match[0].slice(closeIndex + 2));
+  const parsed = parseLinkDestination(
+    match[0].slice(lead.length + label.length + 3),
+  );
   if (!parsed || !parsed.href) return null;
 
   const link = linkType.create({ href: parsed.href, title: parsed.title });
@@ -100,8 +107,8 @@ function applyLinkInputRule(
   tr.delete(destStart, end);
   // Keep the label fragment with its existing marks (e.g. `[**bold**](…)`);
   // only the link mark is applied instead of rebuilding plain text.
-  tr.addMark(start + 1, destStart, link);
-  tr.delete(start, start + 1);
+  tr.addMark(linkStart + 1, destStart, link);
+  tr.delete(linkStart, linkStart + 1);
   // Don't let the mark bleed into text typed right after the link.
   tr.removeStoredMark(linkType);
   return tr;
