@@ -50,3 +50,18 @@ test("a failed rebuild does not block the transitions behind it", async () => {
   await next;
   assert.deepEqual(rebuilt, ["next"]);
 });
+
+test("run reports whether the rebuild it was asked for happened", async () => {
+  const transitions = createDocumentTransitions();
+  const rebuilt = [];
+  const superseded = transitions.run(async () => {
+    rebuilt.push("superseded");
+  });
+  const ran = transitions.run(async () => {
+    rebuilt.push("ran");
+  });
+  // A caller that reports success must not claim a rebuild that never happened.
+  assert.equal(await superseded, false);
+  assert.equal(await ran, true);
+  assert.deepEqual(rebuilt, ["ran"]);
+});

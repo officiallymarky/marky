@@ -12,8 +12,12 @@
  * editor always ends up showing the last document the user asked for.
  */
 export interface DocumentTransitions {
-  /** Runs `rebuild`, unless a later transition was requested first. */
-  run(rebuild: () => Promise<void>): Promise<void>;
+  /**
+   * Runs `rebuild`, unless a later transition was requested first. Resolves
+   * true when it ran, false when it was superseded: a caller that reports
+   * success to the user must not claim a rebuild that never happened.
+   */
+  run(rebuild: () => Promise<void>): Promise<boolean>;
 }
 
 export function createDocumentTransitions(): DocumentTransitions {
@@ -23,8 +27,9 @@ export function createDocumentTransitions(): DocumentTransitions {
     run(rebuild) {
       const token = (epoch += 1);
       const result = queue.then(async () => {
-        if (token !== epoch) return;
+        if (token !== epoch) return false;
         await rebuild();
+        return true;
       });
       // A failed rebuild must not poison the transitions queued behind it.
       queue = result.then(

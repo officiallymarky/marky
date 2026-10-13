@@ -285,12 +285,13 @@ const transitions = createDocumentTransitions();
  * Switches the editor to `doc`. Rebuilds are serialized and only the newest
  * request runs, so two transitions (a reload and an Open, say) can never mount
  * two editors or leave the session and the handle describing different files.
+ * Resolves false when a newer transition superseded this one.
  */
 async function replaceDocument(
   doc: OpenedDocument,
   recovered?: RecoverySnapshot,
-): Promise<void> {
-  await transitions.run(() => rebuildDocument(doc, recovered));
+): Promise<boolean> {
+  return transitions.run(() => rebuildDocument(doc, recovered));
 }
 
 /**
@@ -551,8 +552,8 @@ async function doSave(saveAs = false): Promise<boolean> {
       if (documentSession.state.revision + (handle?.revision ?? 0) !== revision) {
         return false;
       }
-      await replaceDocument(reloaded);
-      return true;
+      // The reload is a transition: report only what actually ran.
+      return replaceDocument(reloaded);
     },
     showError,
   });

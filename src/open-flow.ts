@@ -1,6 +1,7 @@
 export interface OpenFlowDependencies<T> {
   open(): Promise<T | null>;
-  replace(document: T): Promise<void>;
+  /** Replaces the buffer; the result is not used here. */
+  replace(document: T): Promise<unknown>;
   showError(title: string, error: unknown): Promise<void>;
   /** False once the document this open was authorized for is gone. */
   isCurrent(): boolean;

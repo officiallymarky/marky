@@ -53,7 +53,8 @@ export interface ExternalChangeDependencies {
   isDirty(): boolean;
   /** Reads the on-disk version without replacing the buffer. */
   load(): Promise<OpenedDocument>;
-  replace(document: OpenedDocument): Promise<void>;
+  /** Replaces the buffer; the result is not used here. */
+  replace(document: OpenedDocument): Promise<unknown>;
   /** Asked only when the buffer has unsaved edits to lose. */
   confirmReload(): Promise<boolean>;
   showError(title: string, error: unknown): Promise<void>;
