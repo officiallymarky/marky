@@ -345,6 +345,38 @@ const DEBOUNCE_MS = 400;
 /** Longer documents take seconds to lint; they are left unmarked. */
 const MAX_LINT_LENGTH = 400_000;
 
+/** A worker that stops answering is reported and replaced after this long. */
+const LINT_DEADLINE_MS = 30_000;
+
+/**
+ * Resolves with `work`, or rejects once `deadline` elapses and calls `onStall`.
+ * Harper's worker calls only settle when the worker answers, so a worker that
+ * stops answering needs a deadline to become an error instead of waiting
+ * forever.
+ */
+export function withDeadline<T>(
+  work: Promise<T>,
+  deadline: number,
+  onStall: () => void,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      onStall();
+      reject(new Error("The spell checker stopped responding"));
+    }, deadline);
+    work.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
 /**
  * Spell check for one editor instance. Re-reads the enabled flag on creation,
  * and persists ignored lints and dictionary words globally, so they survive
@@ -438,7 +470,11 @@ export function createSpellCheck(
     const version = docVersion;
     const myGeneration = generation;
     try {
-      const { raw, objects } = await lintText(input.text);
+      const { raw, objects } = await withDeadline(
+        lintText(input.text),
+        LINT_DEADLINE_MS,
+        abandonLinter,
+      );
       if (disposed || myGeneration !== generation) {
         release(objects);
         return;
@@ -527,9 +563,28 @@ export function createSpellCheck(
     }
   }
 
+  /**
+   * Shuts a worker down. Best effort: the library's own dispose waits for the
+   * worker to answer, so a stalled worker is left for the app to tear down.
+   */
+  function shutdownLinter(target: Linter): void {
+    void target.dispose().catch((error: unknown) => {
+      console.error("Could not shut down the spell checker", error);
+    });
+  }
+
+  /** Drops the current worker so the next run builds a fresh one. */
+  function abandonLinter(): void {
+    const abandoned = linter;
+    linter = null;
+    linterPromise = null;
+    if (abandoned) shutdownLinter(abandoned);
+  }
+
   function ensureLinter(): Promise<Linter> {
     if (!linterPromise) {
-      linterPromise = (async () => {
+      let created: Linter | null = null;
+      const attempt = (async () => {
         // Runtime import on purpose: this keeps Harper's module and its web
         // worker out of the startup path, so a disabled spell checker costs
         // nothing until the first run.
@@ -537,6 +592,7 @@ export function createSpellCheck(
         const active = new WorkerLinter({
           binary: createBinaryModuleFromUrl(wasmUrl),
         });
+        created = active;
         linter = active;
         await active.setup();
         const words = readStoredWords();
@@ -545,9 +601,14 @@ export function createSpellCheck(
         if (ignored) await active.importIgnoredLints(ignored);
         return active;
       })();
-      linterPromise.catch(() => {
+      linterPromise = attempt;
+      // A failed setup must shut its worker down and let the next run start a
+      // fresh one, or every retry leaves another worker running.
+      attempt.catch(() => {
+        if (linterPromise !== attempt) return;
         linterPromise = null;
-        linter = null;
+        if (linter === created) linter = null;
+        if (created) shutdownLinter(created);
       });
     }
     return linterPromise;
@@ -589,11 +650,7 @@ export function createSpellCheck(
     releaseRetained();
     const active = linter;
     linter = null;
-    if (active) {
-      active.dispose().catch((error: unknown) => {
-        console.error("Could not shut down the spell checker", error);
-      });
-    }
+    if (active) shutdownLinter(active);
   }
 
   if (enabled) requestRun(0);

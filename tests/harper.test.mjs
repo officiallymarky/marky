@@ -9,6 +9,7 @@ import {
   severityOf,
   spellPlugin,
   spellPluginKey,
+  withDeadline,
 } from "../src/harper.ts";
 
 const schema = new Schema({
@@ -238,4 +239,26 @@ test("recorded Harper spans map onto the matching words", () => {
     mapped.map((l) => input.text.slice(l.from - 1, l.to - 1)),
     ["tset", "spel", "chekcing"],
   );
+});
+
+test("a stalled worker becomes an error instead of waiting forever", { timeout: 2000 }, async () => {
+  const stalls = [];
+  await assert.rejects(
+    withDeadline(new Promise(() => {}), 5, () => stalls.push("stalled")),
+    /stopped responding/,
+  );
+  assert.deepEqual(stalls, ["stalled"]);
+
+  // An answer passes straight through, and a real failure stays its own error.
+  assert.equal(
+    await withDeadline(Promise.resolve("lints"), 50, () => stalls.push("late")),
+    "lints",
+  );
+  await assert.rejects(
+    withDeadline(Promise.reject(new Error("worker failed")), 50, () =>
+      stalls.push("late"),
+    ),
+    /worker failed/,
+  );
+  assert.deepEqual(stalls, ["stalled"]);
 });
