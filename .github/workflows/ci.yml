@@ -109,6 +109,53 @@ jobs:
           # Tagged builds live on as release assets; artifacts are a convenience.
           retention-days: 14
 
+  portability:
+    # marky is not Linux-only: lint and test the Rust backend on the other
+    # desktop platforms. macOS cannot be cross-checked from Linux at all.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+        with:
+          version: 11.22.0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch
+        with:
+          toolchain: 1.98.1
+          components: clippy
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          workspaces: src-tauri
+
+      - name: Build frontend
+        # tauri-codegen embeds ../dist, so it must exist before cargo runs.
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Clippy
+        working-directory: src-tauri
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      - name: Test
+        working-directory: src-tauri
+        run: cargo test --locked
+
   dependency-security:
     # Lockfile advisories, npm audit, the bundled-dependency SBOM, and the
     # secret scan. Static scans only: no Rust toolchain, no build, no frontend
