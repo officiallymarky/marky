@@ -455,6 +455,29 @@ export async function runScenarios(harness) {
     );
   });
 
+  await record("a document with an untitled image opens", async (expect) => {
+    harness.answer("Discard");
+    await open(harness, {
+      path: "/tmp/untitled-image.md",
+      name: "untitled-image.md",
+      content: "# Title\n\n![](a.png) ![alt](b.png) ![alt](c.png \"title\")\n",
+    });
+    harness.reset();
+    await menu(harness, "save");
+    const saved = harness.lastCall("save_document")?.args?.content;
+
+    expect(
+      "every image is in the editor",
+      document.querySelectorAll("#editor img:not(.ProseMirror-separator)").length === 3,
+      document.querySelector("#editor")?.innerHTML.slice(0, 200),
+    );
+    expect(
+      "saving writes the images back unchanged",
+      saved === "# Title\n\n![](a.png) ![alt](b.png) ![alt](c.png \"title\")\n",
+      JSON.stringify(saved),
+    );
+  });
+
   return {
     ok: scenarios.every((scenario) => scenario.ok),
     scenarios,

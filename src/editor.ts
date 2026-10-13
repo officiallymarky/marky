@@ -39,6 +39,7 @@ import { codeLanguageAliases, codeLanguages } from "./highlight";
 import { linkInputRule } from "./inline";
 import {
   createCodeBlockCommand,
+  imageSchema,
   insertImageCommand,
   toggleEmphasisCommand,
   toggleInlineCodeCommand,
@@ -203,6 +204,23 @@ export async function createEditor(
         // A queued callback from before a mode switch/undo cannot adopt old text.
         if (!current.get(editorViewCtx).state.doc.eq(doc)) return;
         onUpdate(restoreMarkdownMarkers(current.get(serializerCtx)(doc)));
+      });
+      // Remark reports a missing image title or alt as null, which the image
+      // schema rejects: a plain `![alt](src)` would stop the document opening.
+      ctx.update(imageSchema.key, (schema) => (schemaCtx) => {
+        const base = schema(schemaCtx);
+        return {
+          ...base,
+          parseMarkdown: {
+            ...base.parseMarkdown,
+            runner: (state, node, type) =>
+              state.addNode(type, {
+                src: node.url ?? "",
+                alt: node.alt ?? "",
+                title: node.title ?? "",
+              }),
+          },
+        };
       });
       ctx.update(prismConfig.key, (opts) => {
         opts.configureRefractor = (refractor) => {
