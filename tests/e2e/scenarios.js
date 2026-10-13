@@ -303,6 +303,52 @@ export async function runScenarios(harness) {
     );
   });
 
+  await record("the table dialog and the toolbar menus announce themselves", async (expect) => {
+    harness.answer("Discard");
+    await open(harness, NOTES);
+
+    // A <dialog> is not named by the heading inside it unless it says so.
+    await menu(harness, "insert-table");
+    await settle(120);
+    const dialog = document.querySelector("dialog#insert-table");
+    const labelId = dialog?.getAttribute("aria-labelledby") ?? "";
+    expect("the table dialog is open", dialog?.open === true, String(dialog?.open));
+    expect(
+      "the dialog is named by its heading",
+      document.getElementById(labelId)?.textContent === "Insert table",
+      `${labelId} → ${document.getElementById(labelId)?.textContent}`,
+    );
+    dialog?.close("cancel");
+    await settle();
+
+    // The toolbar's menu triggers report whether their panel is open.
+    editor().focus();
+    document.execCommand("selectAll");
+    await settle(120);
+    const toolbar = document.querySelector(".selection-toolbar");
+    expect("the selection toolbar is shown", visible(toolbar));
+    const trigger = toolbar?.querySelector("button[aria-expanded]");
+    expect(
+      "a menu trigger starts collapsed",
+      trigger?.getAttribute("aria-expanded") === "false",
+      String(trigger?.getAttribute("aria-expanded")),
+    );
+    trigger?.click();
+    await settle();
+    expect(
+      "opening its menu says so",
+      trigger?.getAttribute("aria-expanded") === "true",
+      String(trigger?.getAttribute("aria-expanded")),
+    );
+    trigger?.click();
+    await settle();
+    expect(
+      "closing it says so again",
+      trigger?.getAttribute("aria-expanded") === "false",
+      String(trigger?.getAttribute("aria-expanded")),
+    );
+  });
+
   return {
     ok: scenarios.every((scenario) => scenario.ok),
     scenarios,

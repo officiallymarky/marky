@@ -8,6 +8,26 @@ interface ModalDom<T, E> {
   onOpen?: () => void;
 }
 
+let nextTitleId = 1;
+
+/**
+ * A `<dialog>` is not named by the heading inside it, so a screen reader
+ * announces an unnamed dialog. Point `aria-labelledby` at the first heading;
+ * a dialog that already names itself is left alone.
+ */
+function nameDialog(dialog: HTMLDialogElement): void {
+  if (
+    dialog.hasAttribute("aria-label") ||
+    dialog.hasAttribute("aria-labelledby")
+  ) {
+    return;
+  }
+  const heading = dialog.querySelector("h1, h2, h3, h4, h5, h6");
+  if (!heading) return;
+  if (!heading.id) heading.id = `marky-dialog-title-${nextTitleId++}`;
+  dialog.setAttribute("aria-labelledby", heading.id);
+}
+
 /** Builds lazily; a removed dialog is rebuilt on its next open. */
 export function createModal<T, E>(
   build: () => ModalDom<T, E>,
@@ -28,6 +48,7 @@ export function createModal<T, E>(
 
     if (!dom || !dom.dialog.isConnected) {
       dom = build();
+      nameDialog(dom.dialog);
       document.body.append(dom.dialog);
       const { dialog, readValue } = dom;
       dialog.querySelector("form")!.addEventListener("submit", (event) => {

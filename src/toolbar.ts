@@ -83,6 +83,14 @@ export function createSelectionToolbar(options: {
   root.className = "selection-toolbar";
   root.hidden = true;
 
+  /** Each trigger with the panel it opens, so the two cannot drift apart. */
+  const popups: Array<[HTMLButtonElement, HTMLElement]> = [];
+  const syncExpanded = (): void => {
+    for (const [trigger, panel] of popups) {
+      trigger.setAttribute("aria-expanded", String(!panel.hidden));
+    }
+  };
+
   const run = (action: () => void): void => {
     action();
     view.focus();
@@ -162,10 +170,12 @@ export function createSelectionToolbar(options: {
       insertMenu.hidden = true;
       tablePanel.hidden = true;
       alertPanel.hidden = true;
+      syncExpanded();
     },
     closePopovers: () => {
       linkPopover.panel.hidden = true;
       imagePopover.panel.hidden = true;
+      syncExpanded();
     },
   };
 
@@ -276,6 +286,7 @@ export function createSelectionToolbar(options: {
     window.clearTimeout(submenuTimer);
     tablePanel.hidden = true;
     alertPanel.hidden = true;
+    syncExpanded();
   };
   const submenuHost = (label: string, panel: HTMLDivElement): HTMLDivElement => {
     const host = document.createElement("div");
@@ -286,20 +297,24 @@ export function createSelectionToolbar(options: {
     const arrow = document.createElement("span");
     arrow.className = "tb-submenu-arrow";
     trigger.append(label, arrow);
+    popups.push([trigger, panel]);
     trigger.addEventListener("mousedown", (event) => event.preventDefault());
     trigger.addEventListener("click", () => {
       const willOpen = panel.hidden;
       closeSubmenus();
       panel.hidden = !willOpen;
+      syncExpanded();
     });
     host.addEventListener("mouseenter", () => {
       window.clearTimeout(submenuTimer);
       closeSubmenus();
       panel.hidden = false;
+      syncExpanded();
     });
     host.addEventListener("mouseleave", () => {
       submenuTimer = window.setTimeout(() => {
         panel.hidden = true;
+        syncExpanded();
       }, 150);
     });
     host.append(trigger, panel);
@@ -365,12 +380,14 @@ export function createSelectionToolbar(options: {
     [insertButton, insertMenu],
   ];
   for (const [el, menu] of menuButtons) {
+    popups.push([el, menu]);
     el.addEventListener("mousedown", (event) => event.preventDefault());
     el.addEventListener("click", () => {
       const willOpen = menu.hidden;
       controls.closeMenus();
       controls.closePopovers();
       menu.hidden = !willOpen;
+      syncExpanded();
       if (willOpen) refreshStates();
     });
   }
@@ -379,15 +396,19 @@ export function createSelectionToolbar(options: {
     [imageBtn, imagePopover],
   ];
   for (const [el, popover] of popoverButtons) {
+    popups.push([el, popover.panel]);
     el.addEventListener("mousedown", (event) => event.preventDefault());
     el.addEventListener("click", () => {
       const willOpen = popover.panel.hidden;
       controls.closeMenus();
       controls.closePopovers();
       popover.panel.hidden = !willOpen;
+      syncExpanded();
       if (willOpen) popover.firstInput.focus();
     });
   }
+  // The triggers carry their state before the first interaction too.
+  syncExpanded();
 
   root.append(
     paragraphButton,
