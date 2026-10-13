@@ -166,18 +166,37 @@ inside code blocks, inline code, lists, blockquotes, or prose stay literal; use
 | `Ctrl+N` | New document |
 | `Ctrl+O` | Open file |
 | `Ctrl+S` | Save |
+| `Ctrl+Shift+S` | Save As |
 | `Ctrl+M` | Create or edit front matter |
 | `Ctrl+F` | Open find and replace |
 | `Ctrl+H` | Open find and replace with replacement controls visible |
 | `Enter` / `Shift+Enter` | Next / previous match while searching |
+| `Escape` | Close find and replace, the outline panel, the floating toolbar, or a spelling suggestion |
 | `Ctrl+/` | Toggle Markdown source mode |
 | `Ctrl+Z` | Undo a document edit, including edits made in the other mode |
 | `Ctrl+Y` / `Ctrl+Shift+Z` | Redo a document edit |
-| `Tab` | Insert two spaces in a code block, indent a list item, or move to the next table cell |
 | `F6` | Toggle the heading outline side panel |
 | `F7` | Toggle spelling and grammar checking |
 | `F8` | Toggle focus mode |
 | `F9` | Cycle themes (Appearance menu picks a specific one) |
+
+The rich editor adds formatting shortcuts:
+
+| Shortcut | Action |
+| --- | --- |
+| `Ctrl+B` / `Ctrl+I` | Bold / italic |
+| `Ctrl+E` | Inline code |
+| `Ctrl+Alt+X` | Strikethrough |
+| `Ctrl+Alt+1` … `Ctrl+Alt+6` | Heading level 1–6 |
+| `Ctrl+Alt+0` | Turn the block back into a paragraph |
+| `Ctrl+Shift+B` | Blockquote |
+| `Ctrl+Alt+C` | Code block |
+| `Ctrl+Alt+8` / `Ctrl+Alt+7` | Bulleted / numbered list |
+| `Shift+Enter` | Line break within a paragraph |
+| `Tab` | Insert two spaces in a code block, indent a list item, or move to the next table cell |
+| `Shift+Tab` | Outdent a list item, or move to the previous table cell |
+| `Ctrl+]` / `Ctrl+[` | Indent / outdent a list item, or move to the next / previous table cell |
+| `Enter` / `Ctrl+Enter` in a table | Leave the table |
 
 ### Outline panel
 
