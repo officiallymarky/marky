@@ -233,7 +233,6 @@ release binary is at `src-tauri/target/release/marky`.
 | `src-tauri/src/recovery.rs` | Private, atomic snapshot storage and multi-instance recovery locks |
 | `tests/` | Frontend behavioral tests |
 | `examples/` | Sample Markdown documents |
-| `ROADMAP.md` | Planned work and implementation status |
 
 ### Linux runtime notes
 
@@ -258,5 +257,3 @@ rebuild. The debug binary requires the development frontend server on port 1420;
 - Spelling and grammar checking applies only to the rich editor, not source mode
   or the front-matter panel. Code is excluded, stylistic suggestions are hidden,
   and documents longer than 400,000 characters are not checked.
-
-See the [roadmap](ROADMAP.md) for planned improvements.
