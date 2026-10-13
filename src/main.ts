@@ -1081,7 +1081,11 @@ async function menuAction(action: string): Promise<void> {
 }
 
 await listen<string>("menu-action", ({ payload }) => {
-  void menuAction(payload);
+  // A command that fails — a dialog the shell cannot answer, a window that
+  // refuses to close — must say so instead of leaving the user with nothing.
+  void menuAction(payload).catch((error: unknown) =>
+    showError("Could not run that command", error),
+  );
 });
 
 let restored: RecoverySnapshot | undefined;

@@ -271,6 +271,38 @@ export async function runScenarios(harness) {
     expect("the outside version is not adopted", !text(editor()).includes("Outside edit"));
   });
 
+  await record("a command that fails is reported, not dropped", async (expect) => {
+    harness.answer("Discard");
+    await open(harness, NOTES);
+    await editSource(harness, "Unsaved line\n");
+    harness.reset();
+    // The confirmation must not answer from a label the open left queued:
+    // this scenario needs the dialog invoke itself to fail. `ask` is the
+    // plugin's `message` command, so that is the one to break.
+    harness.state.answers.length = 0;
+    harness.fail("plugin:dialog|message", 1);
+    await menu(harness, "new");
+    await settle(200);
+
+    expect(
+      "the failure is reported to the user",
+      harness.state.dialogs.filter(
+        (dialog) => dialog.title === "Could not run that command",
+      ).length === 1,
+      JSON.stringify(harness.state.dialogs),
+    );
+    expect(
+      "nothing is left unhandled",
+      harness.state.problems.length === 0,
+      harness.state.problems.join("; "),
+    );
+    expect(
+      "the refused command leaves the buffer alone",
+      text(editor()).includes("Unsaved line"),
+      JSON.stringify(text(editor())),
+    );
+  });
+
   return {
     ok: scenarios.every((scenario) => scenario.ok),
     scenarios,
