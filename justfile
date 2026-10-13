@@ -32,10 +32,10 @@ typecheck:
 e2e:
     node tests/e2e/run.mjs
 
-# Non-mutating, offline checks: tests + lint + typecheck + cargo check + secret
-# scan. The scan is part of the gate so that it cannot be forgotten; a machine
-# without gitleaks reports the skipped scan instead of failing the gate.
-verify: lint typecheck test verify-secrets
+# Non-mutating, offline checks: tests + lint + typecheck + cargo check. The
+# secret scan is deliberately not here: it runs at the commit and push
+# boundaries, where its verdict matters, instead of on every iteration.
+verify: lint typecheck test
     cargo check --manifest-path src-tauri/Cargo.toml
 
 # Dependency vulnerability + secret scans. Both always run even when the other
@@ -45,30 +45,27 @@ scan:
     set -uo pipefail
     status=0
     just dependency-security || status=1
-    just secret-scan || status=1
+    just secrets || status=1
     exit "$status"
 
-# Secret scan of the working tree. `.gitleaks.toml` excludes build output, so
+# Secret scan of the working tree. `.betterleaks.toml` excludes build output, so
 # only authored files are reported; files over 1 MB are skipped, which limits
-# coverage of large bundles and vendored blobs.
-secret-scan:
-    gitleaks dir . --redact --max-target-megabytes 1
+# coverage of large bundles and vendored blobs. `--validation=false` keeps the
+# scan detection-only, so it never contacts credential providers.
+secrets:
+    betterleaks dir . --config .betterleaks.toml --redact --validation=false --max-target-megabytes 1
 
-# The gate's view of the secret scan. `secret-scan` itself stays strict: the
-# pre-push hook must fail closed rather than pass when no scanner is present.
-verify-secrets:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if ! command -v gitleaks >/dev/null 2>&1; then
-        echo "secret scan skipped: gitleaks is not installed"
-        exit 0
-    fi
-    just secret-scan
+# Secret scan of exactly what is staged, for the pre-commit hook: a file the
+# commit is not about cannot block it.
+secrets-staged:
+    betterleaks git --staged --config .betterleaks.toml --redact --validation=false --max-target-megabytes 1
 
 # Installs this repository's Git hooks. Hooks are not versioned, so this is the
-# setup step for a fresh clone. The pre-push hook runs `just secret-scan`: the
-# secret scan is the one check that must pass before content leaves a machine.
+# setup step for a fresh clone: pre-commit scans the staged content, pre-push
+# the working tree. Both fail closed when Betterleaks is missing; the pre-push
+# scan does not cover secrets present only in earlier outgoing commits.
 install-hooks:
+    install -Dm755 scripts/hooks/pre-commit .git/hooks/pre-commit
     install -Dm755 scripts/hooks/pre-push .git/hooks/pre-push
 
 # Online advisory checks for lockfiles and identifiable dependencies embedded

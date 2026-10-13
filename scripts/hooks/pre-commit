@@ -1,0 +1,33 @@
+#!/bin/sh
+# Runs before `git commit`.
+#
+#  1. Secret scan of exactly the staged content: a secret that enters history is
+#     far more expensive to remove than one that never lands.
+#  2. Dependency advisories when the commit touches dependencies, lockfiles, or
+#     release configuration — the trigger security.md names. The scan is
+#     networked, so a commit that cannot change the dependency surface does not
+#     wait for it.
+#
+# A missing scanner fails the hook: a commit must not land unscanned. `git
+# commit --no-verify` skips the hook.
+set -e
+
+if ! command -v betterleaks >/dev/null 2>&1; then
+    echo "secret scan cannot run: betterleaks is not installed" >&2
+    exit 1
+fi
+just secrets-staged
+
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+dependency_files=$(printf '%s\n' "$staged" | grep -E '^(package\.json|pnpm-lock\.yaml|src-tauri/Cargo\.(toml|lock)|src-tauri/tauri\.conf\.json|\.github/workflows/)' || true)
+if [ -z "$dependency_files" ]; then
+    echo "dependency scan skipped: no dependency or release files staged"
+    exit 0
+fi
+
+if ! command -v osv-scanner >/dev/null 2>&1; then
+    echo "dependency scan skipped: osv-scanner is not installed"
+    exit 0
+fi
+
+just dependency-security

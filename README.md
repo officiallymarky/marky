@@ -219,7 +219,7 @@ Release bundles are written to `src-tauri/target/release/bundle/`. The standalon
 release binary is at `src-tauri/target/release/marky`.
 
 `just scan` runs dependency and secret checks separately and requires
-`osv-scanner` and `gitleaks`. Use `just --list` to see all available recipes.
+`osv-scanner` and `betterleaks`. Use `just --list` to see all available recipes.
 
 ### Project structure
 

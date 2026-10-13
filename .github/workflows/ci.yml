@@ -146,16 +146,16 @@ jobs:
           chmod +x "$RUNNER_TEMP/osv-scanner"
           sudo mv "$RUNNER_TEMP/osv-scanner" /usr/local/bin/osv-scanner
 
-      - name: Install gitleaks
-        # Pinned release verified against its published sha256 (asset digest
-        # from the GitHub release).
+      - name: Install betterleaks
+        # Pinned release verified against its published sha256 (the asset digest
+        # in the GitHub release and its checksums.txt).
         run: |
-          curl -sSfL -o "$RUNNER_TEMP/gitleaks.tar.gz" \
-            https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
-          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  $RUNNER_TEMP/gitleaks.tar.gz" | sha256sum -c -
-          mkdir -p "$RUNNER_TEMP/gitleaks"
-          tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP/gitleaks"
-          sudo install -m755 "$RUNNER_TEMP/gitleaks/gitleaks" /usr/local/bin/gitleaks
+          curl -sSfL -o "$RUNNER_TEMP/betterleaks.tar.gz" \
+            https://github.com/betterleaks/betterleaks/releases/download/v1.9.0/betterleaks_1.9.0_linux_x64.tar.gz
+          echo "f8b185a39ffcece2a1ca82bf3a4e7435cd81963ffd16b7a9128daf75f35f6de7  $RUNNER_TEMP/betterleaks.tar.gz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/betterleaks"
+          tar -xzf "$RUNNER_TEMP/betterleaks.tar.gz" -C "$RUNNER_TEMP/betterleaks"
+          sudo install -m755 "$RUNNER_TEMP/betterleaks/betterleaks" /usr/local/bin/betterleaks
 
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
@@ -164,7 +164,7 @@ jobs:
         run: just dependency-security
 
       - name: Secret scan
-        run: just secret-scan
+        run: just secrets
 
   release:
     needs: [verify, dependency-security]
