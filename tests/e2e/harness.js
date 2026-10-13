@@ -48,6 +48,13 @@ try {
       content: "# Recovered\n\nUnsaved words\n",
       updatedAt: Date.now(),
     },
+    {
+      id: "8a7b6c5d-4e3f-4a2b-8c1d-0e9f8a7b6c5d",
+      path: null,
+      name: "Untitled",
+      content: "# Another draft\n",
+      updatedAt: Date.now(),
+    },
   ];
   harness.answer("Restore");
 

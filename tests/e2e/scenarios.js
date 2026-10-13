@@ -96,6 +96,13 @@ export async function runScenarios(harness) {
       harness.calls("read_recovery").length === 1,
       JSON.stringify(harness.state.calls.map((call) => call.command)),
     );
+    expect(
+      "the prompt said how many other backups are kept",
+      harness.state.dialogs.some((dialog) =>
+        String(dialog.message).includes("1 other backup kept."),
+      ),
+      JSON.stringify(harness.state.dialogs.map((dialog) => dialog.message)),
+    );
     const raw = document.querySelector("#raw-editor");
     expect("the source editor is what is shown", visible(raw));
     expect(

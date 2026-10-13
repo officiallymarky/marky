@@ -66,6 +66,7 @@ import {
   type RecoverySummary,
   type RecoveryWrite,
 } from "./recovery";
+import { runRecoveryPrompt } from "./recovery-prompt";
 import { createDocumentTransitions } from "./document-transition";
 
 const editorRoot = document.getElementById("editor")!;
@@ -1088,54 +1089,16 @@ await listen<string>("menu-action", ({ payload }) => {
   );
 });
 
-let restored: RecoverySnapshot | undefined;
-let startupRecoveries: RecoverySummary[] = [];
-try {
-  const available = await invoke<{
-    snapshots: RecoverySummary[];
-    errors: string[];
-  }>("list_recovery");
-  startupRecoveries = available.snapshots;
-  for (const error of available.errors) {
-    await showError("Could not read a recovery backup", error);
-  }
-  for (const snapshot of startupRecoveries) {
-    if (restored) break;
-    const choice = await message(
-      `Unsaved writing for "${snapshot.name}" was recovered from ${new Date(snapshot.updatedAt).toLocaleString()}.${
-        snapshot.path ? `\nOriginal: ${snapshot.path}` : ""
-      }\n\nRestore opens an unsaved source copy; the original file is not changed.`,
-      {
-        title: "Recover unsaved writing",
-        kind: "warning",
-        buttons: { yes: "Restore", no: "Discard", cancel: "Later" },
-      },
-    );
-    if (choice === "Restore") {
-      try {
-        // The listing carries metadata only: fetch the text now, and never
-        // restore nothing when the read fails.
-        restored = await invoke<RecoverySnapshot>("read_recovery", {
-          id: snapshot.id,
-        });
-      } catch (error) {
-        await showError("Could not read the recovery backup", error);
-      }
-    } else if (choice === "Discard") {
-      await recovery.discard(snapshot.id);
-    }
-  }
-} catch (error) {
-  await showError("Recovery failed", error);
-} finally {
-  // A deferred snapshot (or a failed prompt) must not stay claimed by us.
-  for (const snapshot of startupRecoveries) {
-    if (snapshot.id === restored?.id) continue;
-    await invoke("release_recovery", { id: snapshot.id }).catch((error: unknown) =>
-      showError("Could not release a recovery backup", error),
-    );
-  }
-}
+const restored = await runRecoveryPrompt({
+  list: () =>
+    invoke<{ snapshots: RecoverySummary[]; errors: string[] }>("list_recovery"),
+  read: (id) => invoke<RecoverySnapshot>("read_recovery", { id }),
+  discard: (id) => recovery.discard(id),
+  release: (id) => invoke("release_recovery", { id }),
+  choose: message,
+  confirm: ask,
+  showError,
+});
 
 await invoke("refresh_recent_documents").catch((error: unknown) =>
   showError("Could not load recent files", error),
