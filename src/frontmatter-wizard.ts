@@ -48,9 +48,19 @@ export function buildFrontMatterBlock(fields: FrontMatterFields): string {
   return `${lines.join("\n")}\n`;
 }
 
-/** Local today as YYYY-MM-DD (the "sv" locale renders exactly that shape). */
+/**
+ * Formats a moment as its local calendar date, YYYY-MM-DD (the "sv" locale
+ * renders exactly that shape). Marky offers the user's local date, never the
+ * UTC one: a date taken from UTC (e.g. via `toISOString`) would be off by a day
+ * around midnight for anyone away from Greenwich.
+ */
+export function formatLocalIsoDate(date: Date): string {
+  return date.toLocaleDateString("sv");
+}
+
+/** Local today as YYYY-MM-DD. */
 export function todayIsoDate(): string {
-  return new Date().toLocaleDateString("sv");
+  return formatLocalIsoDate(new Date());
 }
 
 /** Reads plain strings and JSON-quoted strings; other YAML list syntax is unsupported. */

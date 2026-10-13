@@ -4,9 +4,9 @@ import { getDocumentTitle, splitFrontmatter } from "../src/frontmatter.ts";
 import {
   buildFrontMatterBlock,
   formatListInput,
+  formatLocalIsoDate,
   parseListInput,
   readKnownFields,
-  todayIsoDate,
   updateFrontMatterBlock,
 } from "../src/frontmatter-wizard.ts";
 
@@ -231,8 +231,26 @@ test("title-only updates preserve supported list values with spaces, commas and 
   });
 });
 
-test("today is a plain ISO date", () => {
-  assert.match(todayIsoDate(), /^\d{4}-\d{2}-\d{2}$/);
+test("the offered date is the local calendar date, never the UTC date", () => {
+  // Pick a moment that straddles midnight against UTC: just after local
+  // midnight east of UTC, just before it west of UTC. A date taken from UTC
+  // would then be off by a day, which is the defect a UTC-based refactor
+  // (e.g. toISOString) would introduce.
+  const atMidnight = new Date(2024, 0, 1, 0, 30);
+  const moment =
+    atMidnight.getTimezoneOffset() < 0 ? atMidnight : new Date(2024, 0, 1, 23, 30);
+  const local = [
+    moment.getFullYear(),
+    String(moment.getMonth() + 1).padStart(2, "0"),
+    String(moment.getDate()).padStart(2, "0"),
+  ].join("-");
+
+  assert.equal(formatLocalIsoDate(moment), local);
+  if (moment.getTimezoneOffset() !== 0) {
+    // Guard the check's power: away from UTC this moment must really tell local
+    // and UTC apart, or the assertion above could not catch the regression.
+    assert.notEqual(moment.toISOString().slice(0, 10), local);
+  }
 });
 
 test("dialog list fields round-trip every item shape", () => {
