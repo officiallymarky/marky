@@ -36,6 +36,21 @@ try {
     content: "# Title\n\nHello world\n",
   });
 
+  // A crash left unsaved writing behind: the startup prompt must fetch the
+  // text on demand (`read_recovery`) and open it as an unsaved source copy.
+  // Restoring is what the page starts from, so the `marky notes.md` path is
+  // exercised by the open scenarios instead.
+  harness.state.recovery = [
+    {
+      id: "2f1c4b6e-0f1a-4d2b-9c3e-5a6b7c8d9e0f",
+      path: "/tmp/notes.md",
+      name: "notes.md",
+      content: "# Recovered\n\nUnsaved words\n",
+      updatedAt: Date.now(),
+    },
+  ];
+  harness.answer("Restore");
+
   const { runScenarios } = await import("./scenarios.js");
   await import("/src/main.ts");
   const outcome = await runScenarios(harness);

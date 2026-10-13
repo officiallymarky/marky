@@ -90,32 +90,36 @@ export async function runScenarios(harness) {
     });
   };
 
-  await record("the startup document renders in the editor", async (expect) => {
-    expect("the editor is mounted", Boolean(editor()));
+  await record("recovered writing opens as an unsaved source copy", async (expect) => {
     expect(
-      "the document text is rendered",
-      text(editor()).includes("Hello world"),
-      text(editor()),
+      "the restore fetched the text the listing left out",
+      harness.calls("read_recovery").length === 1,
+      JSON.stringify(harness.state.calls.map((call) => call.command)),
+    );
+    const raw = document.querySelector("#raw-editor");
+    expect("the source editor is what is shown", visible(raw));
+    expect(
+      "the recovered text is in the source",
+      raw.value.includes("Unsaved words"),
+      raw.value,
     );
     expect(
-      "the status bar names the file",
-      document.querySelector("#status-path")?.textContent === NOTES.path,
+      "the restored copy is not bound to the original file",
+      document.querySelector("#status-path")?.textContent === "unsaved",
       document.querySelector("#status-path")?.textContent,
-    );
-    expect(
-      "the word count is shown",
-      /\d+ words/.test(document.querySelector("#status-words")?.textContent ?? ""),
-      document.querySelector("#status-words")?.textContent,
     );
     const title = lastTitle(harness);
     expect(
-      "the window title follows the document",
-      title?.name === NOTES.name && title?.dirty === false,
+      "the recovered copy is marked unsaved",
+      title?.name === "notes.md" && title?.dirty === true,
       JSON.stringify(title),
     );
   });
 
   await record("raw mode shows the source and returns to the editor", async (expect) => {
+    // The recovered copy starts in raw mode; this scenario needs the editor.
+    harness.answer("Discard");
+    await open(harness, NOTES);
     await menu(harness, "raw");
     const raw = document.querySelector("#raw-editor");
     expect("the source editor is visible", visible(raw));
@@ -139,6 +143,8 @@ export async function runScenarios(harness) {
   });
 
   await record("the find bar shows while it is open", async (expect) => {
+    harness.answer("Discard");
+    await open(harness, NOTES);
     await keydown({ key: "f", ctrlKey: true });
     expect("the find bar is visible", visible(document.querySelector("#find-bar")));
     expect(

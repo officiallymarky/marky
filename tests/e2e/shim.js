@@ -48,6 +48,11 @@
   const handlers = {
     startup_document: () => state.startup,
     list_recovery: () => ({ snapshots: state.recovery, errors: [] }),
+    read_recovery: ({ id }) => {
+      const found = state.recovery.find((entry) => entry.id === id);
+      if (!found) throw `harness: no recovery snapshot ${id}`;
+      return found;
+    },
     release_recovery: () => null,
     write_recovery: ({ snapshot }) => {
       const existing = state.recovery.filter((entry) => entry.id !== snapshot.id);
