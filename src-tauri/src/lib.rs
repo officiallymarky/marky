@@ -13,7 +13,7 @@ use serde::Serialize;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::Emitter;
 use tauri::{AppHandle, Manager};
-use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_dialog::{DialogExt, FilePath};
 
 mod native_menu;
 mod recovery;
@@ -147,6 +147,21 @@ fn file_name_of(path: &str) -> String {
         .and_then(|n| n.to_str())
         .unwrap_or("Untitled")
         .to_string()
+}
+
+/// The chosen location as a string. A location that is not a local file, or a
+/// path that is not valid UTF-8, cannot cross the IPC boundary as a string:
+/// refusing beats converting it lossily, which would name a different file.
+fn chosen_path(file: FilePath) -> Result<String, String> {
+    let path = file
+        .into_path()
+        .map_err(|error| format!("Could not use the chosen location: {error}"))?;
+    path.to_str().map(str::to_owned).ok_or_else(|| {
+        format!(
+            "Could not use {}: the path is not valid UTF-8",
+            path.display()
+        )
+    })
 }
 
 /// Reads content and its conflict baseline from the same open file.
@@ -333,7 +348,7 @@ async fn open_document(
             .add_filter("All files", &["*"])
             .blocking_pick_file();
         match picked {
-            Some(file) => read_tracked_document(&identities, &file.to_string()).map(Some),
+            Some(file) => read_tracked_document(&identities, &chosen_path(file)?).map(Some),
             None => Ok(None),
         }
     })
@@ -675,7 +690,8 @@ async fn save_document(
         })
         .await
         .map_err(|e| format!("Save failed: {e}"))?
-        .map(|file| file.to_string()),
+        .map(chosen_path)
+        .transpose()?,
     };
 
     match target {
@@ -1056,10 +1072,10 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        atomic_write, atomic_write_with, document_status, lock_destination, MAX_DOCUMENT_BYTES,
-        off_main_thread, read_tracked_document, read_tracked_document_with, save_to_path,
-        startup_document_from_argument, sync_directory, ConflictKind, DocumentIdentities,
-        FileIdentity,
+        atomic_write, atomic_write_with, chosen_path, document_status, lock_destination,
+        MAX_DOCUMENT_BYTES, off_main_thread, read_tracked_document, read_tracked_document_with,
+        save_to_path, startup_document_from_argument, sync_directory, ConflictKind,
+        DocumentIdentities, FileIdentity, FilePath,
     };
     use std::fs;
     use std::io::{self, Read};
@@ -1352,6 +1368,25 @@ mod tests {
         };
         fs::remove_dir_all(directory).unwrap();
         assert!(error.contains("larger than"), "{error}");
+    }
+
+    /// A path that cannot cross the IPC boundary as a string must be refused:
+    /// the lossy conversion it replaced silently named a different file.
+    #[cfg(unix)]
+    #[test]
+    fn a_path_that_is_not_utf8_is_refused() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let invalid = std::ffi::OsStr::from_bytes(b"notes-\xff.md");
+        assert!(invalid.to_string_lossy().contains('\u{FFFD}'));
+
+        let error = chosen_path(FilePath::Path(invalid.into()))
+            .expect_err("a non-UTF-8 path must be refused");
+        assert!(error.contains("not valid UTF-8"), "{error}");
+        assert_eq!(
+            chosen_path(FilePath::Path("notes.md".into())).unwrap(),
+            "notes.md"
+        );
     }
 
     #[test]
