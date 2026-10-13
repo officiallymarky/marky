@@ -8,10 +8,12 @@ interface SplitDocument {
 /**
  * Splits a leading YAML front-matter block (`---` … `---`) off the document.
  * The block is kept byte-exact so YAML is never reformatted, and it may be
- * empty: `---` immediately followed by the closing fence.
+ * empty: `---` immediately followed by the closing fence. A byte-order mark in
+ * front of the opening fence belongs to the block, so it survives a round trip,
+ * and both fences may carry trailing spaces.
  */
 export function splitFrontmatter(md: string): SplitDocument {
-  const match = /^---\r?\n(?:[\s\S]*?\r?\n)??---(?:\r?\n|$)/.exec(md);
+  const match = /^\uFEFF?---[ \t]*\r?\n(?:[\s\S]*?\r?\n)??---[ \t]*(?:\r?\n|$)/.exec(md);
   if (!match) return { front: null, body: md };
   return { front: match[0], body: md.slice(match[0].length) };
 }
@@ -92,7 +94,9 @@ export function getDocumentTitle(
   fallbackName: string,
 ): string {
   if (!frontmatter) return fallbackName;
-  const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n)?$/.exec(frontmatter);
+  // Tolerate a byte-order mark and trailing spaces on the fences: the split
+  // hands the block over verbatim, so the reader must accept what it produced.
+  const match = /^\uFEFF?---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n)?$/.exec(frontmatter);
   if (!match) return fallbackName;
 
   const titleMatch = /^(?:title|'title'|"title")[ \t]*:[ \t]*([^\r\n]*)$/m.exec(match[1]);

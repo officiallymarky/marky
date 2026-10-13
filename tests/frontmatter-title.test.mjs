@@ -25,6 +25,13 @@ test("reads plain and quoted YAML title scalars", () => {
   );
 });
 
+test("reads a title behind a byte-order mark", () => {
+  assert.equal(
+    getDocumentTitle("\uFEFF---\ntitle: Project notes\n---\n", "notes.md"),
+    "Project notes",
+  );
+});
+
 test("falls back to the file name for missing or unsupported title values", () => {
   for (const frontmatter of [
     null,

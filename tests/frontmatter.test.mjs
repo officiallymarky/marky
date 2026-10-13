@@ -38,6 +38,25 @@ test("recognizes an empty front matter block", () => {
   });
 });
 
+test("recognizes front matter behind a byte-order mark, byte-exact", () => {
+  const mark = "\uFEFF";
+  const document = `${mark}---\ntitle: x\n---\nbody\n`;
+  assert.deepEqual(splitFrontmatter(document), {
+    front: `${mark}---\ntitle: x\n---\n`,
+    body: "body\n",
+  });
+  const { front, body } = splitFrontmatter(document);
+  assert.equal(combineFrontmatter(front, body), document);
+});
+
+test("recognizes a fence with trailing spaces", () => {
+  const document = "--- \ntitle: x\n--- \nbody\n";
+  assert.deepEqual(splitFrontmatter(document), {
+    front: "--- \ntitle: x\n--- \n",
+    body: "body\n",
+  });
+});
+
 test("leaves documents without front matter alone", () => {
   for (const markdown of [
     "",
