@@ -1034,8 +1034,6 @@ pub fn run() {
                 })?;
             }
 
-            let new_item = MenuItemBuilder::with_id("new", "New").build(app)?;
-            let open_item = MenuItemBuilder::with_id("open", "Open…").build(app)?;
             let recent_menu = SubmenuBuilder::new(app, "Recent Files")
                 .item(
                     &MenuItemBuilder::with_id("recent-empty", "No recent files")
@@ -1049,148 +1047,75 @@ pub fn run() {
                 store: recent_store,
                 menu: recent_menu.clone(),
             });
-            let save_item = MenuItemBuilder::with_id("save", "Save").build(app)?;
-            let save_as_item = MenuItemBuilder::with_id("save-as", "Save As…").build(app)?;
-            let close_item = MenuItemBuilder::with_id("close", "Close Window").build(app)?;
-            let front_matter_item =
-                MenuItemBuilder::with_id("front-matter", "Front Matter…").build(app)?;
-
             let file = SubmenuBuilder::new(app, "File")
-                .item(&new_item)
-                .item(&open_item)
+                .text("new", "New")
+                .text("open", "Open…")
                 .item(&recent_menu)
-                .item(&save_item)
-                .item(&save_as_item)
-                .item(&front_matter_item)
+                .text("save", "Save")
+                .text("save-as", "Save As…")
+                .text("front-matter", "Front Matter…")
                 .separator()
-                .item(&close_item)
+                .text("close", "Close Window")
                 .build()?;
 
-            let undo_item = MenuItemBuilder::with_id("undo", "Undo").build(app)?;
-            let redo_item = MenuItemBuilder::with_id("redo", "Redo").build(app)?;
-            let find_item =
-                MenuItemBuilder::with_id("find", "Find/Replace (Ctrl+F)").build(app)?;
-            let cut_item = MenuItemBuilder::with_id("cut", "Cut").build(app)?;
-            let copy_item = MenuItemBuilder::with_id("copy", "Copy").build(app)?;
-            let paste_item = MenuItemBuilder::with_id("paste", "Paste").build(app)?;
-            let select_all_item =
-                MenuItemBuilder::with_id("select-all", "Select All").build(app)?;
             let edit = SubmenuBuilder::new(app, "Edit")
-                .item(&undo_item)
-                .item(&redo_item)
+                .text("undo", "Undo")
+                .text("redo", "Redo")
                 .separator()
-                .item(&find_item)
-                .item(&cut_item)
-                .item(&copy_item)
-                .item(&paste_item)
-                .item(&select_all_item)
+                .text("find", "Find/Replace (Ctrl+F)")
+                .text("cut", "Cut")
+                .text("copy", "Copy")
+                .text("paste", "Paste")
+                .text("select-all", "Select All")
                 .build()?;
 
-            let focus_item =
-                MenuItemBuilder::with_id("focus", "Focus Mode (F8)").build(app)?;
-            let outline_item =
-                MenuItemBuilder::with_id("outline", "Outline (F6)").build(app)?;
-            let theme_item =
-                MenuItemBuilder::with_id("theme", "Next Theme (F9)").build(app)?;
-            let theme_light_item =
-                MenuItemBuilder::with_id("theme-light", "Light").build(app)?;
-            let theme_sepia_item =
-                MenuItemBuilder::with_id("theme-sepia", "Sepia").build(app)?;
-            let theme_solarized_item =
-                MenuItemBuilder::with_id("theme-solarized", "Solarized Light").build(app)?;
-            let theme_dark_item =
-                MenuItemBuilder::with_id("theme-dark", "Dark").build(app)?;
-            let theme_nord_item =
-                MenuItemBuilder::with_id("theme-nord", "Nord").build(app)?;
-            let theme_dracula_item =
-                MenuItemBuilder::with_id("theme-dracula", "Dracula").build(app)?;
-            let theme_catppuccin_item =
-                MenuItemBuilder::with_id("theme-catppuccin", "Catppuccin").build(app)?;
-            let theme_tokyo_night_item =
-                MenuItemBuilder::with_id("theme-tokyo-night", "Tokyo Night").build(app)?;
-            let font_system_item =
-                MenuItemBuilder::with_id("font-system", "System Sans").build(app)?;
-            let font_serif_item =
-                MenuItemBuilder::with_id("font-serif", "Serif").build(app)?;
-            let font_mono_item =
-                MenuItemBuilder::with_id("font-mono", "Monospace").build(app)?;
-            let font_size_small_item =
-                MenuItemBuilder::with_id("font-size-small", "Small").build(app)?;
-            let font_size_medium_item =
-                MenuItemBuilder::with_id("font-size-medium", "Medium").build(app)?;
-            let font_size_large_item =
-                MenuItemBuilder::with_id("font-size-large", "Large").build(app)?;
             let font_menu = SubmenuBuilder::new(app, "Font")
-                .item(&font_system_item)
-                .item(&font_serif_item)
-                .item(&font_mono_item)
+                .text("font-system", "System Sans")
+                .text("font-serif", "Serif")
+                .text("font-mono", "Monospace")
                 .separator()
-                .item(&font_size_small_item)
-                .item(&font_size_medium_item)
-                .item(&font_size_large_item)
+                .text("font-size-small", "Small")
+                .text("font-size-medium", "Medium")
+                .text("font-size-large", "Large")
                 .build()?;
             let theme_menu = SubmenuBuilder::new(app, "Theme")
-                .item(&theme_light_item)
-                .item(&theme_sepia_item)
-                .item(&theme_solarized_item)
-                .item(&theme_dark_item)
-                .item(&theme_nord_item)
-                .item(&theme_dracula_item)
-                .item(&theme_catppuccin_item)
-                .item(&theme_tokyo_night_item)
+                .text("theme-light", "Light")
+                .text("theme-sepia", "Sepia")
+                .text("theme-solarized", "Solarized Light")
+                .text("theme-dark", "Dark")
+                .text("theme-nord", "Nord")
+                .text("theme-dracula", "Dracula")
+                .text("theme-catppuccin", "Catppuccin")
+                .text("theme-tokyo-night", "Tokyo Night")
                 .build()?;
             let appearance_menu = SubmenuBuilder::new(app, "Appearance")
-                .item(&theme_item)
+                .text("theme", "Next Theme (F9)")
                 .separator()
                 .item(&theme_menu)
                 .item(&font_menu)
                 .build()?;
-            let raw_item =
-                MenuItemBuilder::with_id("raw", "Raw Mode (Ctrl+/)").build(app)?;
-            let spell_item =
-                MenuItemBuilder::with_id("spell", "Spell & Grammar Check (F7)").build(app)?;
             let view = SubmenuBuilder::new(app, "View")
-                .item(&outline_item)
-                .item(&focus_item)
+                .text("outline", "Outline (F6)")
+                .text("focus", "Focus Mode (F8)")
                 .separator()
-                .item(&raw_item)
-                .item(&spell_item)
+                .text("raw", "Raw Mode (Ctrl+/)")
+                .text("spell", "Spell & Grammar Check (F7)")
                 .build()?;
 
-            let table_item =
-                MenuItemBuilder::with_id("insert-table", "Table…").build(app)?;
-            let hr_item = MenuItemBuilder::with_id("insert-hr", "Horizontal Line")
-                .build(app)?;
-            let code_block_item =
-                MenuItemBuilder::with_id("insert-code-block", "Code Block").build(app)?;
-            let footnote_item =
-                MenuItemBuilder::with_id("insert-footnote", "Footnote").build(app)?;
-            let toc_item =
-                MenuItemBuilder::with_id("insert-toc", "Table of Contents").build(app)?;
-            let alert_note_item =
-                MenuItemBuilder::with_id("insert-alert-note", "Note").build(app)?;
-            let alert_tip_item =
-                MenuItemBuilder::with_id("insert-alert-tip", "Tip").build(app)?;
-            let alert_important_item =
-                MenuItemBuilder::with_id("insert-alert-important", "Important").build(app)?;
-            let alert_warning_item =
-                MenuItemBuilder::with_id("insert-alert-warning", "Warning").build(app)?;
-            let alert_caution_item =
-                MenuItemBuilder::with_id("insert-alert-caution", "Caution").build(app)?;
             let alert = SubmenuBuilder::new(app, "Alert")
-                .item(&alert_note_item)
-                .item(&alert_tip_item)
-                .item(&alert_important_item)
-                .item(&alert_warning_item)
-                .item(&alert_caution_item)
+                .text("insert-alert-note", "Note")
+                .text("insert-alert-tip", "Tip")
+                .text("insert-alert-important", "Important")
+                .text("insert-alert-warning", "Warning")
+                .text("insert-alert-caution", "Caution")
                 .build()?;
             let insert = SubmenuBuilder::new(app, "Insert")
-                .item(&table_item)
-                .item(&hr_item)
-                .item(&code_block_item)
+                .text("insert-table", "Table…")
+                .text("insert-hr", "Horizontal Line")
+                .text("insert-code-block", "Code Block")
                 .item(&alert)
-                .item(&footnote_item)
-                .item(&toc_item)
+                .text("insert-footnote", "Footnote")
+                .text("insert-toc", "Table of Contents")
                 .build()?;
 
             let menu = MenuBuilder::new(app)

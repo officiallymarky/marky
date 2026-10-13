@@ -68,6 +68,8 @@ import {
 } from "./recovery";
 import { runRecoveryPrompt } from "./recovery-prompt";
 import { createDocumentTransitions } from "./document-transition";
+import { ALERT_KINDS } from "./alerts";
+import { menuOption } from "./menu-action";
 
 const editorRoot = document.getElementById("editor")!;
 const statusWords = document.getElementById("status-words")!;
@@ -1035,16 +1037,6 @@ async function menuAction(action: string): Promise<void> {
       return void insertFromMenu((i) => i.horizontalRule());
     case "insert-code-block":
       return void insertFromMenu((i) => i.codeBlock());
-    case "insert-alert-note":
-      return void insertFromMenu((i) => i.alert("note"));
-    case "insert-alert-tip":
-      return void insertFromMenu((i) => i.alert("tip"));
-    case "insert-alert-important":
-      return void insertFromMenu((i) => i.alert("important"));
-    case "insert-alert-warning":
-      return void insertFromMenu((i) => i.alert("warning"));
-    case "insert-alert-caution":
-      return void insertFromMenu((i) => i.alert("caution"));
     case "insert-footnote":
       return void insertFromMenu((i) => i.footnote());
     case "insert-toc":
@@ -1074,19 +1066,14 @@ async function menuAction(action: string): Promise<void> {
       document.execCommand(action === "select-all" ? "selectAll" : action);
       return;
   }
-  const themeItem = action.startsWith("theme-")
-    ? THEMES.find((theme) => theme.id === action.slice("theme-".length))
-    : undefined;
-  if (themeItem) applyTheme(themeItem);
-  if (action.startsWith("font-size-")) {
-    const size = FONT_SIZES.find((option) => option.id === action.slice(10));
-    if (size) applyFontSize(size.id);
-    return;
-  }
-  if (action.startsWith("font-")) {
-    const family = FONT_FAMILIES.find((option) => option.id === action.slice(5));
-    if (family) applyFont(family.id);
-  }
+  const alert = menuOption(action, "insert-alert-", ALERT_KINDS);
+  if (alert) return insertFromMenu((i) => i.alert(alert));
+  const theme = menuOption(action, "theme-", THEMES);
+  if (theme) return applyTheme(theme);
+  const size = menuOption(action, "font-size-", FONT_SIZES);
+  if (size) return applyFontSize(size.id);
+  const family = menuOption(action, "font-", FONT_FAMILIES);
+  if (family) applyFont(family.id);
 }
 
 await listen<string>("menu-action", ({ payload }) => {
