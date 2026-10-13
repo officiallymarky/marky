@@ -21,6 +21,10 @@ mod recent;
 mod window_state;
 
 const APP_TITLE: &str = "marky";
+
+/// Largest document marky opens. Past this the read is refused instead of
+/// filling memory with a file no editor can handle.
+const MAX_DOCUMENT_BYTES: u64 = 64 * 1024 * 1024;
 static NEXT_TEMP_FILE_ID: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Serialize)]
@@ -161,7 +165,25 @@ fn read_tracked_document_with(
 ) -> Result<Document, String> {
     let read = || -> io::Result<(String, FileIdentity)> {
         let mut file = fs::File::open(path)?;
-        let identity = FileIdentity::from_metadata(&file.metadata()?);
+        let metadata = file.metadata()?;
+        // A directory, device or FIFO never ends: reading one would hang or
+        // exhaust memory before any length check could reject it.
+        if !metadata.file_type().is_file() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "not a regular file",
+            ));
+        }
+        let identity = FileIdentity::from_metadata(&metadata);
+        if identity.length > MAX_DOCUMENT_BYTES {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "file is {} bytes, which is larger than the {} byte limit",
+                    identity.length, MAX_DOCUMENT_BYTES
+                ),
+            ));
+        }
         let content = read_content(&mut file)?;
         let after = FileIdentity::from_metadata(&file.metadata()?);
         if identity != after || content.len() as u64 != identity.length {
@@ -1034,8 +1056,8 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        atomic_write, atomic_write_with, document_status, lock_destination, off_main_thread,
-        read_tracked_document, read_tracked_document_with, save_to_path,
+        atomic_write, atomic_write_with, document_status, lock_destination, MAX_DOCUMENT_BYTES,
+        off_main_thread, read_tracked_document, read_tracked_document_with, save_to_path,
         startup_document_from_argument, sync_directory, ConflictKind, DocumentIdentities,
         FileIdentity,
     };
@@ -1294,6 +1316,42 @@ mod tests {
         }))
         .unwrap();
         assert_ne!(worker, caller);
+    }
+
+    /// A directory, device or FIFO never ends: reading one would hang or
+    /// exhaust memory before any length check could reject it.
+    #[test]
+    fn reading_something_that_is_not_a_regular_file_is_refused() {
+        let directory = temporary_directory();
+        let path = directory.to_string_lossy().into_owned();
+        let identities = DocumentIdentities::default();
+
+        let error = match read_tracked_document(&identities, &path) {
+            Err(error) => error,
+            Ok(_) => panic!("a directory must not read as a document"),
+        };
+        fs::remove_dir_all(directory).unwrap();
+        assert!(error.contains("not a regular file"), "{error}");
+    }
+
+    #[test]
+    fn reading_a_file_past_the_size_limit_is_refused() {
+        let directory = temporary_directory();
+        let path = directory.join("huge.md");
+        // Sparse: the length is metadata, so the test costs no disk.
+        fs::File::create(&path)
+            .unwrap()
+            .set_len(MAX_DOCUMENT_BYTES + 1)
+            .unwrap();
+        let path = path.to_string_lossy().into_owned();
+        let identities = DocumentIdentities::default();
+
+        let error = match read_tracked_document(&identities, &path) {
+            Err(error) => error,
+            Ok(_) => panic!("an oversized file must not read as a document"),
+        };
+        fs::remove_dir_all(directory).unwrap();
+        assert!(error.contains("larger than"), "{error}");
     }
 
     #[test]
