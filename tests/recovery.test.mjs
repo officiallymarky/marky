@@ -2,9 +2,22 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createRecoveryJournal } from "../src/recovery.ts";
 
-/** Lets microtasks queued behind timer callbacks finish before asserting. */
-const settle = async () => {
-  for (let i = 0; i < 10; i += 1) await new Promise(setImmediate);
+/**
+ * Waits for the journal's asynchronous work to satisfy `condition`, re-checking
+ * after each turn instead of spinning a fixed number of turns and hoping. One
+ * turn is yielded first so work the mocked debounce timer queued can start; the
+ * generous deadline makes a condition that never holds fail loudly rather than
+ * hang or pass by accident.
+ */
+const waitFor = async (condition, message, timeoutMs = 2000) => {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    await new Promise((resolve) => setImmediate(resolve));
+    if (condition()) return;
+    if (Date.now() >= deadline) {
+      throw new Error(`timed out after ${timeoutMs}ms waiting for ${message}`);
+    }
+  }
 };
 
 /**
@@ -83,23 +96,22 @@ test("scheduled writes debounce, capture immutable payloads, and dedupe", async 
   const payload = snapshot("d1", "first draft\n");
   journal.schedule(payload, true);
   payload.content = "mutated after scheduling\n";
-  await settle();
-  assert.equal(writes.length, 0, "nothing before the debounce window closes");
+  await waitFor(
+    () => writes.length === 0,
+    "nothing before the debounce window closes",
+  );
 
   timers.tick(500);
-  await settle();
-  assert.equal(writes.length, 1);
+  await waitFor(() => writes.length === 1, "the debounce flush to persist");
   assert.equal(store.get("d1")?.content, "first draft\n");
 
   journal.schedule(snapshot("d1", "first draft\n"), true);
   timers.tick(2000);
-  await settle();
-  assert.equal(writes.length, 1, "identical snapshot is deduped");
+  await waitFor(() => writes.length === 1, "the identical snapshot to be deduped");
 
   journal.schedule(snapshot("d1", "second draft\n"), true);
   timers.tick(500);
-  await settle();
-  assert.equal(writes.length, 2);
+  await waitFor(() => writes.length === 2, "the second draft to persist");
   assert.equal(store.get("d1")?.content, "second draft\n");
 });
 
@@ -115,13 +127,11 @@ test("continuous input persists within the two second bound", async (t) => {
     journal.schedule(snapshot("d1", `edit ${i}\n`), true);
   }
   timers.tick(200); // deadline timer set at t=0 fires at t=2000
-  await settle();
-  assert.equal(writes.length, 1, "max-wait flushes once, not per keystroke");
+  await waitFor(() => writes.length === 1, "the max-wait flush to persist once");
   assert.equal(store.get("d1")?.content, "edit 9\n");
 
   timers.tick(1000);
-  await settle();
-  assert.equal(writes.length, 1, "no further writes without new input");
+  await waitFor(() => writes.length === 1, "no further writes without new input");
 });
 
 test("clean clear at save time drops pending edits, then reconciliation repersists", async (t) => {
@@ -133,8 +143,10 @@ test("clean clear at save time drops pending edits, then reconciliation repersis
 
   journal.schedule(snapshot(id, "pre-save\n"), true);
   timers.tick(500);
-  await settle();
-  assert.equal(store.get(id)?.content, "pre-save\n");
+  await waitFor(
+    () => store.get(id)?.content === "pre-save\n",
+    "the first flush to persist",
+  );
 
   // Save submits the persisted snapshot and journals it while writing.
   await journal.checkpoint(snapshot(id, "submitted\n"), true);
@@ -148,14 +160,12 @@ test("clean clear at save time drops pending edits, then reconciliation repersis
   assert.equal(store.size, 0);
 
   timers.tick(2000);
-  await settle();
-  assert.equal(writes.length, 2, "the cancelled timer never fires stale edits");
+  await waitFor(() => writes.length === 2, "the cancelled timer never to fire");
 
   // Periodic reconciliation rediscovers the dirty editor and repersists.
   journal.schedule(snapshot(id, "edit during save\n"), true);
   timers.tick(500);
-  await settle();
-  assert.equal(writes.length, 3);
+  await waitFor(() => writes.length === 3, "the rediscovered edit to repersist");
   assert.equal(store.get(id)?.content, "edit during save\n");
 });
 
@@ -169,14 +179,12 @@ test("explicit discard drains an in-flight write, cancels queued ones, removes",
   journal.schedule(snapshot(id, "in-flight\n"), true);
   timers.tick(500);
   const release = hangNextWrite();
-  await settle();
-  assert.equal(writes.length, 1, "first write is in flight");
+  await waitFor(() => writes.length === 1, "the first write to start and stall");
 
   journal.schedule(snapshot(id, "queued\n"), true);
   timers.tick(500);
   const discarding = journal.discard(id);
-  await settle();
-  assert.equal(writes.length, 1, "queued write was cancelled before running");
+  await waitFor(() => writes.length === 1, "the queued write to be cancelled");
 
   release();
   await discarding;
@@ -185,8 +193,7 @@ test("explicit discard drains an in-flight write, cancels queued ones, removes",
 
   journal.schedule(snapshot(id, "after discard\n"), true);
   timers.tick(2000);
-  await settle();
-  assert.equal(writes.length, 1, "retired ids schedule nothing");
+  await waitFor(() => writes.length === 1, "a retired id to schedule nothing");
 });
 
 test("discarding before the debounce window prevents any write", async (t) => {
@@ -199,8 +206,7 @@ test("discarding before the debounce window prevents any write", async (t) => {
   journal.schedule(snapshot(id, "never written\n"), true);
   await journal.discard(id);
   timers.tick(2000);
-  await settle();
-  assert.deepEqual(writes, []);
+  await waitFor(() => writes.length === 0, "the discarded snapshot to write nothing");
   assert.equal(store.size, 0);
 });
 
@@ -215,34 +221,38 @@ test("failures report once per repeated failure until success, then reconcile", 
   failNext(2);
   journal.schedule(payload, true);
   timers.tick(500);
-  await settle();
-  assert.equal(writes.length, 1);
-  assert.equal(errors.length, 1, "first failure is reported");
+  await waitFor(
+    () => writes.length === 1 && errors.length === 1,
+    "the first failure to be reported once",
+  );
   assert.equal(store.size, 0);
 
   journal.schedule(payload, true);
   timers.tick(500);
-  await settle();
-  assert.equal(writes.length, 2, "a failed write is retried");
-  assert.equal(errors.length, 1, "the repeated failure is not reported again");
+  await waitFor(
+    () => writes.length === 2 && errors.length === 1,
+    "the failed write to be retried without a second report",
+  );
 
   journal.schedule(payload, true);
   timers.tick(500);
-  await settle();
-  assert.equal(writes.length, 3);
-  assert.equal(errors.length, 1);
+  await waitFor(
+    () => writes.length === 3 && errors.length === 1,
+    "the retry to persist the snapshot",
+  );
   assert.equal(store.get(id)?.content, "repeated content\n");
 
   journal.schedule(payload, true);
   timers.tick(500);
-  await settle();
-  assert.equal(writes.length, 3, "the now-persisted snapshot is deduped");
+  await waitFor(() => writes.length === 3, "the now-persisted snapshot to dedupe");
 
   failNext(1);
   journal.schedule(snapshot(id, "different content\n"), true);
   timers.tick(500);
-  await settle();
-  assert.equal(errors.length, 2, "a failure after success is reported again");
+  await waitFor(
+    () => errors.length === 2,
+    "a failure after success to be reported again",
+  );
   assert.equal(store.get(id)?.content, "repeated content\n");
 });
 
@@ -263,8 +273,7 @@ test("checkpoint errors propagate to the caller without poisoning the queue", as
 
   journal.schedule(snapshot(id, "checked\n"), true);
   timers.tick(500);
-  await settle();
-  assert.equal(store.get(id)?.content, "checked\n", "queue still works");
+  await waitFor(() => store.get(id)?.content === "checked\n", "the queue to keep working");
 });
 
 test("a queued duplicate write collapses once the first one persists", async (t) => {
@@ -277,20 +286,19 @@ test("a queued duplicate write collapses once the first one persists", async (t)
   journal.schedule(snapshot(id, "same\n"), true);
   timers.tick(500);
   const release = hangNextWrite();
-  await settle();
-  assert.equal(writes.length, 1);
+  await waitFor(() => writes.length === 1, "the first write to start and stall");
 
   journal.schedule(snapshot(id, "same\n"), true);
   timers.tick(500);
   release();
-  await settle();
-  assert.equal(writes.length, 1, "duplicate resolved against persisted state");
-  assert.equal(store.get(id)?.content, "same\n");
+  await waitFor(
+    () => store.get(id)?.content === "same\n" && writes.length === 1,
+    "the drained write to persist and the duplicate to dedupe",
+  );
 
   journal.schedule(snapshot(id, "same\n", "/tmp/note.md"), true);
   timers.tick(500);
-  await settle();
-  assert.equal(writes.length, 2, "path changes defeat the dedupe");
+  await waitFor(() => writes.length === 2, "the path change to defeat the dedupe");
   assert.equal(store.get(id)?.path, "/tmp/note.md");
 });
 
@@ -302,13 +310,11 @@ test("clean checkpoints do not retire an id; discard does", async (t) => {
   const id = "d1";
 
   await journal.checkpoint(snapshot(id, "clean\n"), false);
-  await settle();
-  assert.deepEqual(removed, [id], "an unknown id is cleared once");
+  await waitFor(() => removed.length === 1, "an unknown id to be cleared once");
 
   journal.schedule(snapshot(id, "dirty\n"), true);
   timers.tick(500);
-  await settle();
-  assert.equal(store.get(id)?.content, "dirty\n");
+  await waitFor(() => store.get(id)?.content === "dirty\n", "the dirty snapshot to persist");
 
   await journal.checkpoint(snapshot(id, "clean\n"), false);
   assert.deepEqual(removed, [id, id]);
@@ -316,14 +322,12 @@ test("clean checkpoints do not retire an id; discard does", async (t) => {
 
   journal.schedule(snapshot(id, "reused\n"), true);
   timers.tick(500);
-  await settle();
-  assert.equal(writes.length, 2, "the cleared id stays usable");
+  await waitFor(() => writes.length === 2, "the cleared id to stay usable");
 
   await journal.discard(id);
   journal.schedule(snapshot(id, "ignored\n"), true);
   timers.tick(2000);
-  await settle();
-  assert.equal(writes.length, 2, "discarded ids schedule nothing");
+  await waitFor(() => writes.length === 2, "a discarded id to schedule nothing");
   assert.deepEqual(removed, [id, id, id]);
   assert.equal(store.size, 0);
 });
@@ -349,7 +353,7 @@ test("discarding an orphan snapshot the controller never wrote removes it", asyn
   // Retired or not, the cleared id is not removed again without new writes.
   await journal.discard(id);
   journal.schedule(snapshot(id, "ignored\n"), false);
-  await settle();
+  await waitFor(() => removed.length === 2, "cleared ids to dedupe removals");
   assert.deepEqual(removed, [id, id], "cleared ids dedupe removals");
 });
 
@@ -363,12 +367,10 @@ test("a clean schedule clears a backend snapshot and dedupes afterwards", async 
   store.set(id, { id, path: null, name: "Note", content: "leftover\n" });
 
   journal.schedule(snapshot(id, "leftover\n"), false);
-  await settle();
-  assert.equal(store.size, 0);
+  await waitFor(() => store.size === 0, "the clean schedule to clear the snapshot");
 
   journal.schedule(snapshot(id, "leftover\n"), false);
-  await settle();
-  assert.deepEqual(removed, [id], "clean ids are removed only once");
+  await waitFor(() => removed.length === 1, "clean ids to be removed only once");
 });
 
 test("a discarded id can be put back under protection after a failed teardown", async (t) => {
@@ -384,8 +386,7 @@ test("a discarded id can be put back under protection after a failed teardown", 
 
   journal.schedule(snapshot(id, "typed while retired\n"), true);
   timers.tick(2000);
-  await settle();
-  assert.equal(writes.length, 1, "a retired id schedules nothing");
+  await waitFor(() => writes.length === 1, "a retired id to schedule nothing");
 
   // The close failed and the window is still open: protect the document again.
   await journal.resume(snapshot(id, "typed after the failed close\n"), true);
@@ -393,8 +394,10 @@ test("a discarded id can be put back under protection after a failed teardown", 
 
   journal.schedule(snapshot(id, "more typing\n"), true);
   timers.tick(500);
-  await settle();
-  assert.equal(store.get(id)?.content, "more typing\n");
+  await waitFor(
+    () => store.get(id)?.content === "more typing\n",
+    "the re-armed id to persist",
+  );
   assert.deepEqual(removed, [id], "the snapshot is not removed twice");
   assert.deepEqual(errors, []);
 });
