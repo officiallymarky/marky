@@ -293,13 +293,32 @@ async function replaceDocument(
   await transitions.run(() => rebuildDocument(doc, recovered));
 }
 
-/** Rebuilds the editor for `doc`; `transitions` guarantees it runs alone. */
+/**
+ * Rebuilds the editor for `doc`; `transitions` guarantees it runs alone. A
+ * failure must not leave the editor inert and silent: the document is already
+ * in the session, so editing state is restored (saving and recovery keep
+ * working on the loaded content) and the error is reported.
+ */
 async function rebuildDocument(
+  doc: OpenedDocument,
+  recovered?: RecoverySnapshot,
+): Promise<void> {
+  documentReady = false;
+  try {
+    await buildDocument(doc, recovered);
+  } catch (error) {
+    documentReady = true;
+    refreshChrome();
+    await showError("Could not open the document", error);
+  }
+}
+
+/** Builds the editor and makes `doc` the current document. */
+async function buildDocument(
   doc: OpenedDocument,
   recovered?: RecoverySnapshot,
 ) {
   const previous = documentSession;
-  documentReady = false;
   // The version this buffer is about to hold becomes the baseline a save
   // compares against, and it must be in place before the document becomes
   // current: a save issued while the editor is rebuilt would otherwise write
@@ -316,8 +335,11 @@ async function rebuildDocument(
   session.state.load(doc.content);
   editHistory.clear();
   richSource = null;
-  await handle?.destroy();
+  // Cleared first: a destroy that fails must not leave the reference pointing
+  // at a half-torn-down editor.
+  const previousHandle = handle;
   handle = null;
+  await previousHandle?.destroy();
   rawMode = recovered !== undefined;
   rawEditor.hidden = !rawMode;
   editorRoot.hidden = rawMode;

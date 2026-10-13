@@ -43,6 +43,19 @@ test("open failures are reported without replacing the current document", async 
   assert.deepEqual(failure.reported, [{ title: "Open failed", error: openError }]);
 });
 
+test("a failed replace is reported instead of escaping the flow", async () => {
+  const replaceError = new Error("Could not rebuild the editor");
+  const failure = fixture({
+    replace: async () => {
+      throw replaceError;
+    },
+  });
+
+  await runOpenFlow(failure.dependencies);
+
+  assert.deepEqual(failure.reported, [{ title: "Open failed", error: replaceError }]);
+});
+
 test("a cancelled open leaves the current document alone", async () => {
   const cancelled = fixture({ open: async () => null });
 

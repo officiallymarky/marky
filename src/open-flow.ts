@@ -28,5 +28,11 @@ export async function runOpenFlow<T>(
 
   if (!document) return;
   if (!dependencies.isCurrent() || dependencies.revision() !== revision) return;
-  await dependencies.replace(document);
+  try {
+    await dependencies.replace(document);
+  } catch (error) {
+    // Rebuilding the editor can fail; report it instead of rejecting, so the
+    // caller is left with the document it already had and a visible error.
+    await dependencies.showError("Open failed", error);
+  }
 }
