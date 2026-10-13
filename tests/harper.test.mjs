@@ -153,6 +153,28 @@ test("applySuggestionTr refuses a lint whose text changed", () => {
   assert.ok(applySuggestionTr(edited, matching, { kind: 0, text: "" }));
 });
 
+test("a spelling fix cannot merge two blocks", () => {
+  // Splitting a paragraph spreads a former "wrld" lint over both blocks; the
+  // stale check passes because the concatenated text still reads "wrld".
+  const state = stateWith(doc(paragraph("w"), paragraph("rld")));
+  const spanning = lint({ problem: "wrld", from: 1, to: 7 });
+  assert.equal(state.doc.textBetween(spanning.from, spanning.to, "", ""), "wrld");
+  const tr = applySuggestionTr(state, spanning, { kind: 0, text: "world" });
+  const blocks = tr ? state.apply(tr).doc.childCount : state.doc.childCount;
+  assert.equal(blocks, 2, "the fix must not delete the block boundary");
+});
+
+test("plugin mapping drops a lint that a paragraph split spreads across blocks", () => {
+  const state = stateWith(doc(paragraph("wrld")));
+  const withLints = state.apply(
+    state.tr.setMeta(spellPluginKey, {
+      lints: [lint({ problem: "wrld", from: 1, to: 5 })],
+    }),
+  );
+  const split = withLints.apply(withLints.tr.split(2));
+  assert.deepEqual(spellPluginKey.getState(split).lints, []);
+});
+
 test("plugin decorations follow the lints and their mapped positions", () => {
   const state = stateWith(doc(paragraph("a tset here")));
   const withLints = state.apply(

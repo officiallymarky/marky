@@ -208,6 +208,10 @@ export function applySuggestionTr(
   if (state.doc.textBetween(lint.from, lint.to, "", "") !== lint.problem) {
     return null;
   }
+  // An edit can leave the range straddling a block boundary (a split paragraph
+  // reads the same with an empty separator). Replacing it would delete the
+  // boundary and everything else inside the range.
+  if (!state.doc.resolve(lint.from).sameParent(state.doc.resolve(lint.to))) return null;
   const tr = state.tr;
   if (suggestion.kind === SUGGESTION_REMOVE || suggestion.text === "") {
     tr.delete(lint.from, lint.to);
@@ -244,6 +248,7 @@ export const spellPlugin = new Plugin<SpellPluginState>({
         const from = tr.mapping.mapResult(lint.from);
         const to = tr.mapping.mapResult(lint.to, 1);
         if (from.deleted || to.deleted || to.pos <= from.pos) continue;
+        if (!tr.doc.resolve(from.pos).sameParent(tr.doc.resolve(to.pos))) continue;
         lints.push({ ...lint, from: from.pos, to: to.pos });
       }
       return { lints };
