@@ -24,7 +24,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 const SNAPSHOT_SUFFIX: &str = ".json";
 const LOCK_SUFFIX: &str = ".lock";
@@ -45,7 +45,7 @@ pub(crate) struct RecoveryWrite {
     pub(crate) content: String,
 }
 
-/// A snapshot as stored on disk and returned by listing.
+/// A snapshot as stored on disk, including its content.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RecoverySnapshot {
@@ -56,6 +56,19 @@ pub(crate) struct RecoverySnapshot {
     pub(crate) updated_at: u64,
 }
 
+/// One snapshot's metadata without its content, as returned by listing. The
+/// startup prompt needs only these fields, and shipping every orphan's text in
+/// one IPC payload is needless exposure when the user may restore none of
+/// them; `RecoveryStore::read` fetches the text on demand.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RecoverySummary {
+    pub(crate) id: String,
+    pub(crate) path: Option<String>,
+    pub(crate) name: String,
+    pub(crate) updated_at: u64,
+}
+
 /// Listing result: orphan snapshots that can be restored, plus one message
 /// per snapshot that could not be read, so a single corrupt journal never
 /// hides the recoverable ones. Error messages identify the id and file but
@@ -63,7 +76,7 @@ pub(crate) struct RecoverySnapshot {
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RecoveryListing {
-    pub(crate) snapshots: Vec<RecoverySnapshot>,
+    pub(crate) snapshots: Vec<RecoverySummary>,
     pub(crate) errors: Vec<String>,
 }
 
@@ -282,6 +295,27 @@ impl RecoveryStore {
         Ok(())
     }
 
+    /// Reads one snapshot's content for a restore. The id must be a canonical
+    /// UUID and its file must exist; the directory guard is held so a discard
+    /// or rewrite cannot race the read. Nothing is removed: recovery files are
+    /// the user's unsaved writing, kept until the user discards them.
+    pub(crate) fn read(&self, id: &str) -> io::Result<RecoverySnapshot> {
+        let id = snapshot_id(id)?;
+        let _guard = DirectoryGuard::acquire(&self.guard)?;
+        let json_path = self.snapshot_path(id);
+        if let Some(message) = planted_link(&json_path) {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, message));
+        }
+        if !json_path.try_exists()? {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("recovery snapshot {id} is not present"),
+            ));
+        }
+        read_snapshot(id, &json_path)
+            .map_err(|message| io::Error::new(io::ErrorKind::InvalidData, message))
+    }
+
     fn snapshot_path(&self, id: &str) -> PathBuf {
         self.root.join(format!("{id}{SNAPSHOT_SUFFIX}"))
     }
@@ -331,7 +365,7 @@ fn claim_orphan(
     id: &str,
     json_path: &Path,
     lock_path: &Path,
-) -> Result<Option<RecoverySnapshot>, String> {
+) -> Result<Option<RecoverySummary>, String> {
     if locks.contains_key(id) {
         return Ok(None); // this session already holds it as a live snapshot
     }
@@ -366,7 +400,7 @@ fn claim_orphan(
         unlock_quietly(&file);
         return Err(message);
     }
-    match read_snapshot(id, json_path) {
+    match read_summary(id, json_path) {
         Ok(snapshot) => {
             locks.insert(id.to_string(), file);
             Ok(Some(snapshot))
@@ -381,20 +415,58 @@ fn claim_orphan(
 /// Reads and validates one snapshot file, rejecting records whose id does
 /// not match the file name.
 fn read_snapshot(expected_id: &str, path: &Path) -> Result<RecoverySnapshot, String> {
-    let serialized = fs::read_to_string(path)
-        .map_err(|e| format!("recovery snapshot {expected_id} at {} cannot be read: {e}", path.display()))?;
-    let snapshot: RecoverySnapshot = serde_json::from_str(&serialized).map_err(|e| {
-        format!("recovery snapshot {expected_id} at {} is corrupt: {e}", path.display())
+    let snapshot: RecoverySnapshot = read_record(expected_id, path)?;
+    verify_record_id(expected_id, path, &snapshot.id)?;
+    Ok(snapshot)
+}
+
+/// Reads one snapshot's metadata, ignoring its stored `content` so listing
+/// never materializes every snapshot's text.
+fn read_summary(expected_id: &str, path: &Path) -> Result<RecoverySummary, String> {
+    let metadata: RecoveryMetadata = read_record(expected_id, path)?;
+    verify_record_id(expected_id, path, &metadata.id)?;
+    Ok(RecoverySummary {
+        id: metadata.id,
+        path: metadata.path,
+        name: metadata.name,
+        updated_at: metadata.updated_at,
+    })
+}
+
+/// The metadata fields of a stored snapshot; serde ignores the stored
+/// `content` when deserializing into this view.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RecoveryMetadata {
+    id: String,
+    path: Option<String>,
+    name: String,
+    updated_at: u64,
+}
+
+fn read_record<T: DeserializeOwned>(expected_id: &str, path: &Path) -> Result<T, String> {
+    let serialized = fs::read_to_string(path).map_err(|e| {
+        format!(
+            "recovery snapshot {expected_id} at {} cannot be read: {e}",
+            path.display()
+        )
     })?;
-    if snapshot.id != expected_id {
+    serde_json::from_str(&serialized).map_err(|e| {
+        format!(
+            "recovery snapshot {expected_id} at {} is corrupt: {e}",
+            path.display()
+        )
+    })
+}
+
+fn verify_record_id(expected_id: &str, path: &Path, recorded: &str) -> Result<(), String> {
+    if recorded != expected_id {
         return Err(format!(
-            "recovery snapshot {} at {} records id {} inside the file",
-            expected_id,
-            path.display(),
-            snapshot.id
+            "recovery snapshot {expected_id} at {} records id {recorded} inside the file",
+            path.display()
         ));
     }
-    Ok(snapshot)
+    Ok(())
 }
 
 /// Reports a non-regular file (symlink, directory, …) planted at a snapshot
@@ -595,7 +667,7 @@ mod tests {
     }
 
     #[test]
-    fn write_then_list_returns_snapshots_newest_first() {
+    fn listing_reports_newest_first_summaries_without_content() {
         let dir = TempDir::new();
         let writer = store_for(&dir);
         for (number, content, updated_at) in [
@@ -623,13 +695,19 @@ mod tests {
                 .windows(2)
                 .all(|w| w[0].updated_at >= w[1].updated_at)
         );
-        assert_eq!(listing.snapshots[0].content, "newest");
         assert_eq!(listing.snapshots[0].name, format!("note {}", uuid(2)));
         assert_eq!(
             listing.snapshots[0].path,
             Some(format!("/notes/{}.md", uuid(2)))
         );
         assert!(listing.errors.is_empty());
+        // The listing ships no document text: not in the struct, and not in
+        // the serialized payload either.
+        let payload = serde_json::to_string(&listing).unwrap();
+        assert!(!payload.contains("newest"), "payload was {payload}");
+        assert!(!payload.contains("content"), "payload was {payload}");
+        // The text is still on disk and comes back on demand.
+        assert_eq!(reader.read(&uuid(2)).unwrap().content, "newest");
     }
 
     #[test]
@@ -643,7 +721,7 @@ mod tests {
         let reader = store_for(&dir);
         let listing = reader.list();
         assert_eq!(listing.snapshots.len(), 1);
-        assert_eq!(listing.snapshots[0].content, "second");
+        assert_eq!(reader.read(&uuid(1)).unwrap().content, "second");
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 3); // json + lock + guard
         assert_eq!(read_stored_content(&dir.snapshot_path(&uuid(1))), "second");
     }
@@ -742,7 +820,7 @@ mod tests {
 
         assert_eq!(listing.snapshots.len(), 1);
         assert_eq!(listing.snapshots[0].id, uuid(1));
-        assert_eq!(listing.snapshots[0].content, "valid");
+        assert_eq!(reader.read(&uuid(1)).unwrap().content, "valid");
         assert_eq!(listing.errors.len(), 2);
         assert!(
             listing
@@ -793,7 +871,7 @@ mod tests {
         let first = store_for(&dir);
         let listing = first.list();
         assert_eq!(listing.snapshots.len(), 1);
-        assert_eq!(listing.snapshots[0].content, "orphan");
+        assert_eq!(first.read(&uuid(1)).unwrap().content, "orphan");
 
         let second = store_for(&dir);
         assert!(second.list().snapshots.is_empty());
@@ -898,6 +976,30 @@ mod tests {
             assert!(message.contains("canonical"), "message was {message:?}");
         }
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1); // guard only
+    }
+
+    #[test]
+    fn read_returns_stored_content_and_refuses_absent_or_non_canonical_ids() {
+        let dir = TempDir::new();
+        let store = store_for(&dir);
+        store.write(&write_of(&uuid(1), "unsaved draft")).unwrap();
+
+        // A snapshot this instance holds reads back its text.
+        let snapshot = store.read(&uuid(1)).unwrap();
+        assert_eq!(snapshot.id, uuid(1));
+        assert_eq!(snapshot.name, format!("note {}", uuid(1)));
+        assert_eq!(snapshot.content, "unsaved draft");
+
+        // An id with no snapshot file is refused and creates nothing.
+        let absent = store.read(&uuid(2));
+        assert!(absent.is_err(), "an absent id must be refused");
+        assert!(!dir.snapshot_path(&uuid(2)).exists());
+        assert!(!dir.lock_path(&uuid(2)).exists());
+
+        // A non-canonical id is refused by the store's own validation.
+        let bad = store.read("not-a-uuid");
+        assert!(bad.is_err(), "a non-canonical id must be refused");
+        assert!(bad.unwrap_err().to_string().contains("canonical"));
     }
 
     #[test]

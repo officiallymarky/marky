@@ -10,6 +10,14 @@ export interface RecoverySnapshot extends RecoveryWrite {
   updatedAt: number;
 }
 
+/** A stored snapshot's metadata; its text is fetched only when restoring. */
+export interface RecoverySummary {
+  id: string;
+  path: string | null;
+  name: string;
+  updatedAt: number;
+}
+
 export interface RecoveryJournalDependencies {
   write(snapshot: RecoveryWrite): Promise<void>;
   remove(id: string): Promise<void>;

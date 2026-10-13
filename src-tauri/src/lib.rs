@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
@@ -131,6 +131,34 @@ impl DocumentIdentities {
     }
 }
 
+/// Paths the app itself chose: what the open and save dialogs returned, the
+/// command-line argument, and a recent-file entry the native menu offered.
+/// File commands only act on these, so a webview-script bug cannot turn them
+/// into an arbitrary file read or write.
+#[derive(Default, Clone)]
+struct KnownPaths {
+    paths: Arc<Mutex<HashSet<String>>>,
+}
+
+impl KnownPaths {
+    /// Registers a path the app chose. A poisoned lock drops the registration
+    /// rather than panicking: the worst case is a refused command, never a
+    /// wrong file.
+    fn add(&self, path: &str) {
+        if let Ok(mut paths) = self.paths.lock() {
+            paths.insert(path.to_string());
+        }
+    }
+
+    /// Whether `path` came from the app itself.
+    fn allows(&self, path: &str) -> bool {
+        self.paths
+            .lock()
+            .map(|paths| paths.contains(path))
+            .unwrap_or(false)
+    }
+}
+
 /// Status of a tracked file, as reported to the frontend.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -147,6 +175,28 @@ fn file_name_of(path: &str) -> String {
         .and_then(|n| n.to_str())
         .unwrap_or("Untitled")
         .to_string()
+}
+
+/// Refuses a path the app never chose. `action` names the command so the
+/// message reads naturally ("Could not open notes.md: ...").
+pub(crate) fn require_known(known: &KnownPaths, action: &str, path: &str) -> Result<(), String> {
+    if known.allows(path) {
+        Ok(())
+    } else {
+        Err(format!(
+            "Could not {action} {}: the window did not open or save this file",
+            file_name_of(path)
+        ))
+    }
+}
+
+/// Registers the path a recent-file menu id names, so the file commands accept
+/// a path the app itself stored. The id comes from the app's own menu, not the
+/// renderer, so this is not a way for a webview to name an arbitrary file.
+fn register_menu_path(known: &KnownPaths, action: &str) {
+    if let Some(path) = action.strip_prefix("recent:") {
+        known.add(path);
+    }
 }
 
 /// The chosen location as a string. A location that is not a local file, or a
@@ -325,10 +375,16 @@ fn startup_document_from_argument(
 #[tauri::command]
 async fn startup_document(
     state: tauri::State<'_, DocumentIdentities>,
+    known: tauri::State<'_, KnownPaths>,
 ) -> Result<Option<Document>, String> {
     let identities = state.inner().clone();
+    let known = known.inner().clone();
     let argument = std::env::args().nth(1);
     off_main_thread("Startup document", move || {
+        // The command line chose this path; later commands may name it.
+        if let Some(path) = argument.as_deref() {
+            known.add(path);
+        }
         startup_document_from_argument(&identities, argument.as_deref())
     })
     .await
@@ -338,8 +394,10 @@ async fn startup_document(
 async fn open_document(
     app: AppHandle,
     state: tauri::State<'_, DocumentIdentities>,
+    known: tauri::State<'_, KnownPaths>,
 ) -> Result<Option<Document>, String> {
     let identities = state.inner().clone();
+    let known = known.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let picked = app
             .dialog()
@@ -348,7 +406,12 @@ async fn open_document(
             .add_filter("All files", &["*"])
             .blocking_pick_file();
         match picked {
-            Some(file) => read_tracked_document(&identities, &chosen_path(file)?).map(Some),
+            Some(file) => {
+                let path = chosen_path(file)?;
+                // The dialog chose this path; later commands may name it.
+                known.add(&path);
+                read_tracked_document(&identities, &path).map(Some)
+            }
             None => Ok(None),
         }
     })
@@ -360,8 +423,10 @@ async fn open_document(
 #[tauri::command]
 async fn load_document(
     state: tauri::State<'_, DocumentIdentities>,
+    known: tauri::State<'_, KnownPaths>,
     path: String,
 ) -> Result<Document, String> {
+    require_known(&known, "open", &path)?;
     let identities = state.inner().clone();
     off_main_thread("Open document", move || read_tracked_document(&identities, &path)).await
 }
@@ -371,8 +436,14 @@ async fn load_document(
 /// baseline, or the next save would overwrite the outside version unnoticed.
 /// Only the in-memory identity map changes, so this needs no thread hop.
 #[tauri::command]
-fn adopt_document(state: tauri::State<'_, DocumentIdentities>, path: String) {
+fn adopt_document(
+    state: tauri::State<'_, DocumentIdentities>,
+    known: tauri::State<'_, KnownPaths>,
+    path: String,
+) -> Result<(), String> {
+    require_known(&known, "open", &path)?;
     state.adopt(&path);
+    Ok(())
 }
 
 /// Reports whether the file still matches the version the app read. This runs
@@ -380,8 +451,10 @@ fn adopt_document(state: tauri::State<'_, DocumentIdentities>, path: String) {
 #[tauri::command]
 async fn check_document(
     state: tauri::State<'_, DocumentIdentities>,
+    known: tauri::State<'_, KnownPaths>,
     path: String,
 ) -> Result<DocumentStatus, String> {
+    require_known(&known, "check", &path)?;
     let identities = state.inner().clone();
     off_main_thread("Document check", move || Ok(document_status(&identities, &path))).await
 }
@@ -689,24 +762,36 @@ fn sync_directory(dir: &Path) -> io::Result<()> {
 async fn save_document(
     app: AppHandle,
     state: tauri::State<'_, DocumentIdentities>,
+    known: tauri::State<'_, KnownPaths>,
     path: Option<String>,
     content: String,
     force: bool,
 ) -> Result<SaveOutcome, String> {
+    let known = known.inner().clone();
     // No known path: raise the save dialog (Save As).
     let target = match path {
-        Some(p) => Some(p),
-        None => tauri::async_runtime::spawn_blocking(move || {
-            app.dialog()
-                .file()
-                .add_filter("Markdown", &["md", "markdown"])
-                .set_file_name("Untitled.md")
-                .blocking_save_file()
-        })
-        .await
-        .map_err(|e| format!("Save failed: {e}"))?
-        .map(chosen_path)
-        .transpose()?,
+        Some(p) => {
+            require_known(&known, "save", &p)?;
+            Some(p)
+        }
+        None => {
+            let picked = tauri::async_runtime::spawn_blocking(move || {
+                app.dialog()
+                    .file()
+                    .add_filter("Markdown", &["md", "markdown"])
+                    .set_file_name("Untitled.md")
+                    .blocking_save_file()
+            })
+            .await
+            .map_err(|e| format!("Save failed: {e}"))?
+            .map(chosen_path)
+            .transpose()?;
+            // The save dialog chose this path; later saves may name it directly.
+            if let Some(path) = &picked {
+                known.add(path);
+            }
+            picked
+        }
     };
 
     match target {
@@ -778,15 +863,32 @@ async fn write_recovery(
     .await
 }
 
-/// Lists orphan snapshots left by crashed instances. Valid snapshots are in
-/// `snapshots` (newest first); unreadable ones are reported in `errors`
-/// without content and stay on disk untouched.
+/// Lists orphan snapshots left by crashed instances as metadata summaries
+/// (newest first), so the startup prompt never ships every snapshot's text.
+/// Unreadable snapshots are reported in `errors` and stay on disk untouched.
 #[tauri::command]
 async fn list_recovery(
     store: tauri::State<'_, recovery::RecoveryStore>,
 ) -> Result<recovery::RecoveryListing, String> {
     let store = store.inner().clone();
     off_main_thread("recovery task", move || Ok(store.list())).await
+}
+
+/// Returns the content of one recovery snapshot so the frontend can restore
+/// it. Refuses a non-canonical id and an id with no snapshot file; nothing is
+/// deleted, because recovery files are the user's unsaved writing.
+#[tauri::command]
+async fn read_recovery(
+    store: tauri::State<'_, recovery::RecoveryStore>,
+    id: String,
+) -> Result<recovery::RecoverySnapshot, String> {
+    let store = store.inner().clone();
+    off_main_thread("recovery task", move || {
+        store
+            .read(&id)
+            .map_err(|e| format!("failed to read recovery snapshot {id}: {e}"))
+    })
+    .await
 }
 
 /// Deletes exactly the recovery snapshot with this id; snapshots live in
@@ -834,6 +936,7 @@ pub fn run() {
     std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
     tauri::Builder::default()
         .manage(DocumentIdentities::default())
+        .manage(KnownPaths::default())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             startup_document,
@@ -849,11 +952,16 @@ pub fn run() {
             native_menu::set_menu_palette,
             write_recovery,
             list_recovery,
+            read_recovery,
             discard_recovery,
             release_recovery
         ])
         .on_menu_event(|app, event| {
-            let _ = app.emit("menu-action", event.id().as_ref());
+            let action = event.id().as_ref();
+            if let Some(known) = app.try_state::<KnownPaths>() {
+                register_menu_path(&known, action);
+            }
+            let _ = app.emit("menu-action", action);
         })
         .setup(|app| {
             let recovery_root = app
@@ -1089,8 +1197,8 @@ mod tests {
     use super::{
         atomic_write, atomic_write_with, chosen_path, document_status, lock_destination,
         MAX_DOCUMENT_BYTES, off_main_thread, read_tracked_document, read_tracked_document_with,
-        save_to_path, startup_document_from_argument, sync_directory, ConflictKind,
-        DocumentIdentities, FileIdentity, FilePath,
+        register_menu_path, require_known, save_to_path, startup_document_from_argument,
+        sync_directory, ConflictKind, DocumentIdentities, FileIdentity, FilePath, KnownPaths,
     };
     use std::fs;
     use std::io::{self, Read};
@@ -1117,6 +1225,46 @@ mod tests {
     /// Stands in for the frontend adopting the version it just put in a buffer.
     fn track(identities: &DocumentIdentities, path: &str) {
         identities.remember(path, FileIdentity::read(std::path::Path::new(path)).unwrap());
+    }
+
+    /// A webview bug must not be able to name a file the app never chose.
+    #[test]
+    fn known_paths_accepts_only_registered_paths() {
+        let known = KnownPaths::default();
+        assert!(!known.allows("/notes/notes.md"));
+        known.add("/notes/notes.md");
+        assert!(known.allows("/notes/notes.md"));
+
+        // A refused command must not widen the registry.
+        let refused = require_known(&known, "open", "/etc/passwd").unwrap_err();
+        assert!(refused.contains("passwd"), "message was {refused:?}");
+        assert!(refused.contains("did not open or save this file"));
+        assert!(!known.allows("/etc/passwd"));
+
+        // The command names the verb, so a save refusal reads as a save.
+        let refused_save = require_known(&known, "save", "/etc/shadow").unwrap_err();
+        assert!(
+            refused_save.starts_with("Could not save shadow:"),
+            "message was {refused_save:?}"
+        );
+        assert!(!known.allows("/etc/shadow"));
+
+        assert!(require_known(&known, "open", "/notes/notes.md").is_ok());
+    }
+
+    /// Only a recent-file click registers a path; other menu actions do not.
+    #[test]
+    fn only_recent_menu_actions_register_a_path() {
+        let known = KnownPaths::default();
+        register_menu_path(&known, "recent:/notes/notes.md");
+        assert!(known.allows("/notes/notes.md"));
+        // A path smuggled into another action id is not registered.
+        register_menu_path(&known, "open:/etc/passwd");
+        assert!(!known.allows("/etc/passwd"));
+        assert!(!known.allows("open:/etc/passwd"));
+        // The recent submenu's own items register nothing.
+        register_menu_path(&known, "recent-clear");
+        assert!(!known.allows("recent-clear"));
     }
 
     #[test]

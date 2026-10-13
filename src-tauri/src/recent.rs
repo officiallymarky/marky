@@ -149,7 +149,12 @@ pub(crate) fn refresh_recent_documents(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub(crate) fn remember_document(app: AppHandle, path: String) -> Result<(), String> {
+pub(crate) fn remember_document(
+    app: AppHandle,
+    known: tauri::State<'_, crate::KnownPaths>,
+    path: String,
+) -> Result<(), String> {
+    crate::require_known(&known, "open", &path)?;
     let recent = app.state::<RecentDocuments>();
     let paths = recent
         .store

@@ -63,6 +63,7 @@ import {
 import {
   createRecoveryJournal,
   type RecoverySnapshot,
+  type RecoverySummary,
   type RecoveryWrite,
 } from "./recovery";
 import { createDocumentTransitions } from "./document-transition";
@@ -1084,10 +1085,10 @@ await listen<string>("menu-action", ({ payload }) => {
 });
 
 let restored: RecoverySnapshot | undefined;
-let startupRecoveries: RecoverySnapshot[] = [];
+let startupRecoveries: RecoverySummary[] = [];
 try {
   const available = await invoke<{
-    snapshots: RecoverySnapshot[];
+    snapshots: RecoverySummary[];
     errors: string[];
   }>("list_recovery");
   startupRecoveries = available.snapshots;
@@ -1107,7 +1108,15 @@ try {
       },
     );
     if (choice === "Restore") {
-      restored = snapshot;
+      try {
+        // The listing carries metadata only: fetch the text now, and never
+        // restore nothing when the read fails.
+        restored = await invoke<RecoverySnapshot>("read_recovery", {
+          id: snapshot.id,
+        });
+      } catch (error) {
+        await showError("Could not read the recovery backup", error);
+      }
     } else if (choice === "Discard") {
       await recovery.discard(snapshot.id);
     }
