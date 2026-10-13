@@ -37,6 +37,25 @@ test("leaves inline code byte-exact", () => {
   assert.equal(restoreMarkdownMarkers(multi), multi);
 });
 
+test("a literal backtick in prose does not open a code region", () => {
+  // The serializer escapes a literal backtick in prose as `\``. Treating it as
+  // a span delimiter masks the wrong characters and rewrites real code.
+  const beforeFence = "x \\` y\n\n```\ncode ` here \\[!NOTE]\n```\n";
+  assert.equal(restoreMarkdownMarkers(beforeFence), beforeFence);
+  const beforeSpan = "x \\` y `\\[^1]` more\n";
+  assert.equal(restoreMarkdownMarkers(beforeSpan), beforeSpan);
+  // Both backticks are literal prose, so the marker between them is prose too.
+  assert.equal(
+    restoreMarkdownMarkers("The \\` key and \\[!NOTE] plus \\` again\n"),
+    "The \\` key and [!NOTE] plus \\` again\n",
+  );
+});
+
+test("code whose closing delimiter follows a backslash still masks", () => {
+  const inline = "write `C:\\` and `\\[!NOTE]`\n";
+  assert.equal(restoreMarkdownMarkers(inline), inline);
+});
+
 test("restores prose around code without touching the code", () => {
   const markdown = [
     "\\[!NOTE] prose",

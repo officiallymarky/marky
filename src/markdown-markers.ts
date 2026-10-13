@@ -9,6 +9,7 @@
  * (`mdast-util-to-markdown` indents code only when `fences` is false, which
  * marky never sets) or as inline code spans, so those two forms cover every
  * character the serializer emitted verbatim.
+ * A backslash-escaped backtick in prose is literal text, not a span delimiter.
  */
 import { restoreAlertMarkers } from "./alerts.ts";
 import { restoreFootnoteRefs } from "./footnote.ts";
@@ -49,6 +50,17 @@ function fenceEnd(markdown: string, start: number, fence: Fence): number {
   return markdown.length;
 }
 
+/** True when the character at `index` is escaped by an odd run of backslashes. */
+function isEscaped(markdown: string, index: number): boolean {
+  let backslashes = 0;
+  let cursor = index - 1;
+  while (cursor >= 0 && markdown[cursor] === "\\") {
+    backslashes += 1;
+    cursor -= 1;
+  }
+  return backslashes % 2 === 1;
+}
+
 /** Start of the next backtick run of exactly `length`, or -1. */
 function closingRun(markdown: string, from: number, length: number): number {
   let index = from;
@@ -81,7 +93,7 @@ function codeRegions(markdown: string): { start: number; end: number }[] {
         continue;
       }
     }
-    if (markdown[index] === "`") {
+    if (markdown[index] === "`" && !isEscaped(markdown, index)) {
       let run = 0;
       while (markdown[index + run] === "`") run += 1;
       const close = closingRun(markdown, index + run, run);
