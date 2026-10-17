@@ -1872,7 +1872,7 @@ dependencies = [
 
 [[package]]
 name = "marky"
-version = "0.12.1"
+version = "0.12.2"
 dependencies = [
  "gtk",
  "percent-encoding",
