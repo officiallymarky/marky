@@ -54,10 +54,10 @@ jobs:
         with:
           version: 11.22.0
 
-      - uses: actions/setup-node@v7 # zizmor: ignore[cache-poisoning] — cache disabled on pull_request runs
+      - uses: actions/setup-node@v7 # zizmor: ignore[cache-poisoning] — pull_request runs cannot write the default-branch cache scope
         with:
           node-version: 26
-          cache: ${{ github.event_name != 'pull_request' && 'pnpm' || '' }}
+          cache: pnpm
 
       # Mirrors the toolchain the project is verified against locally; bump
       # together with local rustup updates (or switch to `stable`).
@@ -66,10 +66,9 @@ jobs:
           toolchain: 1.98.1
           components: clippy
 
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # zizmor: ignore[cache-poisoning] — v2, lookup-only on pull_request runs
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # zizmor: ignore[cache-poisoning] — v2; pull_request runs cannot write the default-branch cache scope
         with:
           workspaces: src-tauri
-          lookup-only: ${{ github.event_name == 'pull_request' }}
 
       - name: Install just
         # Pinned release verified against its published sha256.
@@ -145,10 +144,10 @@ jobs:
         with:
           version: 11.22.0
 
-      - uses: actions/setup-node@v7 # zizmor: ignore[cache-poisoning] — cache disabled on pull_request runs
+      - uses: actions/setup-node@v7 # zizmor: ignore[cache-poisoning] — pull_request runs cannot write the default-branch cache scope
         with:
           node-version: 26
-          cache: ${{ github.event_name != 'pull_request' && 'pnpm' || '' }}
+          cache: pnpm
 
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch
         with:
@@ -156,10 +155,9 @@ jobs:
           components: clippy
           targets: ${{ matrix.targets }}
 
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # zizmor: ignore[cache-poisoning] — v2, lookup-only on pull_request runs
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # zizmor: ignore[cache-poisoning] — v2; pull_request runs cannot write the default-branch cache scope
         with:
           workspaces: src-tauri
-          lookup-only: ${{ github.event_name == 'pull_request' }}
 
       - name: Build frontend
         # tauri-codegen embeds ../dist, so it must exist before cargo runs.
@@ -203,10 +201,10 @@ jobs:
         with:
           version: 11.22.0
 
-      - uses: actions/setup-node@v7 # zizmor: ignore[cache-poisoning] — cache disabled on pull_request runs
+      - uses: actions/setup-node@v7 # zizmor: ignore[cache-poisoning] — pull_request runs cannot write the default-branch cache scope
         with:
           node-version: 26
-          cache: ${{ github.event_name != 'pull_request' && 'pnpm' || '' }}
+          cache: pnpm
 
       - name: Install just
         # Pinned release verified against its published sha256.
