@@ -190,8 +190,8 @@ test("replaceAllTr replaces every match in one transaction", () => {
   assert.equal(res.count, 4);
   const next = state.apply(res.tr);
   assert.equal(next.doc.textContent, "stop stop stopalso stop");
-  // Caret parked at the first replacement.
-  assert.equal(next.selection.from, res.tr.selection.from);
+  // The caret parks at the first replacement (doc offset 1).
+  assert.equal(next.selection.from, 1);
 });
 
 test("replaceAllTr with empty replacement deletes every match", () => {

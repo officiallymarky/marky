@@ -79,6 +79,19 @@ test("mapLints turns buffer spans into document ranges", () => {
   );
   const text = schema.node("doc", null, [paragraph("alpha beta"), paragraph("beta gamma")]);
   assert.equal(text.textBetween(first.from, first.to, "", ""), "beta");
+
+  // Three spans recorded from harper.js 2.10.0 for one sentence (plaintext
+  // mode): mapping keeps every lint on its own word.
+  const sentence = buildLintInput(doc(paragraph("This is a tset of spel chekcing.")));
+  const mapped = mapLints(sentence, [
+    lint({ start: 10, end: 14, problem: "tset" }),
+    lint({ start: 18, end: 22, problem: "spel" }),
+    lint({ start: 23, end: 31, problem: "chekcing" }),
+  ]);
+  assert.deepEqual(
+    mapped.map((l) => sentence.text.slice(l.from - 1, l.to - 1)),
+    ["tset", "spel", "chekcing"],
+  );
 });
 
 test("mapLints drops lints that cross separators or leave the text", () => {
@@ -224,22 +237,6 @@ test("plugin decorations render one inline decoration per lint", () => {
   assert.equal(decoration.from, 3);
   assert.equal(decoration.to, 7);
   assert.match(decoration.type.attrs.class, /md-lint-spelling/);
-});
-
-test("recorded Harper spans map onto the matching words", () => {
-  // Spans recorded from harper.js 2.10.0 for this sentence (plaintext mode).
-  const input = buildLintInput(
-    doc(paragraph("This is a tset of spel chekcing.")),
-  );
-  const mapped = mapLints(input, [
-    lint({ start: 10, end: 14, problem: "tset" }),
-    lint({ start: 18, end: 22, problem: "spel" }),
-    lint({ start: 23, end: 31, problem: "chekcing" }),
-  ]);
-  assert.deepEqual(
-    mapped.map((l) => input.text.slice(l.from - 1, l.to - 1)),
-    ["tset", "spel", "chekcing"],
-  );
 });
 
 test("a stalled worker becomes an error instead of waiting forever", { timeout: 2000 }, async () => {

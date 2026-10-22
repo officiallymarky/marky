@@ -489,8 +489,9 @@ export async function runScenarios(harness) {
     const placeholder = () => document.querySelector("#editor .md-image-blocked:not([hidden])");
 
     expect(
-      "a relative image loads from the document's folder",
-      image("local")?.getAttribute("src") === "/tmp/pictures/img/a.png",
+      "a relative image loads through the marky-image protocol",
+      image("local")?.getAttribute("src") ===
+        `marky-image://localhost/${encodeURIComponent("/tmp/pictures/img/a.png")}`,
       image("local")?.getAttribute("src"),
     );
     expect(

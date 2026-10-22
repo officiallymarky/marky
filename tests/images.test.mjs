@@ -36,13 +36,19 @@ test("web, data and blob images are told apart from files", () => {
     kind: "remote",
     url: "https://example.com/a.png",
   });
+  // A protocol-relative URL has no usable scheme in the packaged app (the
+  // page is served from tauri:), so it is pinned to https.
   assert.deepEqual(imageSource("//example.com/a.png", NOTES), {
     kind: "remote",
-    url: "//example.com/a.png",
+    url: "https://example.com/a.png",
   });
   assert.deepEqual(imageSource("data:image/png;base64,AA==", NOTES), {
     kind: "inline",
     url: "data:image/png;base64,AA==",
+  });
+  assert.deepEqual(imageSource("blob:https://example.com/1", NOTES), {
+    kind: "inline",
+    url: "blob:https://example.com/1",
   });
 });
 

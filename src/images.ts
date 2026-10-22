@@ -41,7 +41,12 @@ export function imageSource(src: string, documentPath: string | null): ImageSour
   const reference = src.trim().replaceAll("\\", "/");
   if (!reference) return { kind: "none" };
   if (/^(data|blob):/i.test(reference)) return { kind: "inline", url: reference };
-  if (/^(https?:)?\/\//i.test(reference)) return { kind: "remote", url: reference };
+  if (reference.startsWith("//")) {
+    // A protocol-relative URL inherits no scheme here: the packaged page is
+    // served from tauri:, so resolving it as https keeps it loadable.
+    return { kind: "remote", url: `https:${reference}` };
+  }
+  if (/^https?:\/\//i.test(reference)) return { kind: "remote", url: reference };
   const drive = /^[a-z]:\//i.test(reference);
   const file = /^file:/i.test(reference);
   if (!drive && !file && /^[a-z][a-z0-9+.-]*:/i.test(reference)) return { kind: "none" };

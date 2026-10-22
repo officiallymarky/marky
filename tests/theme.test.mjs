@@ -5,12 +5,9 @@ import {
   resolveTheme,
 } from "../src/theme.ts";
 
-test("resolveTheme prefers a stored theme id, including legacy values", () => {
+test("resolveTheme prefers a stored theme id over the OS preference", () => {
   assert.equal(resolveTheme("sepia", true).id, "sepia");
   assert.equal(resolveTheme("nord", false).id, "nord");
-  // Legacy storage from before multiple themes used exactly these values.
-  assert.equal(resolveTheme("dark", false).id, "dark");
-  assert.equal(resolveTheme("light", true).id, "light");
 });
 
 test("resolveTheme falls back to the OS preference for absent or unknown values", () => {

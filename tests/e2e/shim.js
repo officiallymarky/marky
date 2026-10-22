@@ -155,7 +155,9 @@
     unregisterCallback(id) {
       callbacks.delete(id);
     },
-    convertFileSrc: (path) => path,
+    // Mirrors convertFileSrc: a custom scheme with the encoded absolute path.
+    convertFileSrc: (path, protocol = "asset") =>
+      `${protocol}://localhost/${encodeURIComponent(path)}`,
     async invoke(command, args) {
       state.calls.push({ command, args });
       const failures = state.failures.get(command) ?? 0;

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { after, test } from "node:test";
 
 import { createSearchPanel } from "../src/search.ts";
 import { DocumentHistory } from "../src/document-history.ts";
@@ -161,6 +161,12 @@ function harness({ syncRefresh = true } = {}) {
     },
   };
 }
+
+// The fake DOM is module-global; drop it so a later suite cannot inherit it.
+after(() => {
+  delete globalThis.document;
+  delete globalThis.HTMLElement;
+});
 
 const selection = (editor) => [editor.selectionStart, editor.selectionEnd];
 
@@ -337,7 +343,7 @@ test("replace-all is stable when replacements contain the needle", () => {
   assert.equal(h.errors.length, 0);
 });
 
-test("no matches disables replacement and keeps the count coherent", () => {
+test("no matches leaves replacement as a no-op and keeps the count coherent", () => {
   const h = harness();
   h.editor.value = "x x";
   h.search("z", "y");

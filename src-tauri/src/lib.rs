@@ -1484,6 +1484,15 @@ mod tests {
         let old_inode = fs::metadata(&path).unwrap().ino();
         fs::set_permissions(&directory, fs::Permissions::from_mode(0o555)).unwrap();
 
+        // Root can create entries in a write-protected directory, so the
+        // in-place fallback this test targets would never be reached.
+        if fs::File::create(directory.join("write-probe")).is_ok() {
+            let _ = fs::remove_file(directory.join("write-probe"));
+            fs::set_permissions(&directory, fs::Permissions::from_mode(0o755)).unwrap();
+            fs::remove_dir_all(directory).unwrap();
+            return;
+        }
+
         let identities = DocumentIdentities::default();
         let result = save_to_path(&identities, &path.to_string_lossy(), "new content", false);
 
@@ -2000,12 +2009,19 @@ mod tests {
         track(&identities, &key);
 
         let held = lock_destination(&path).expect("the destination can be locked");
+        let (start, started) = std::sync::mpsc::channel();
         let (done, finished) = std::sync::mpsc::channel();
         let saving = std::thread::spawn(move || {
+            start.send(()).unwrap();
             done.send(save_to_path(&identities, &key, "edit", false).is_ok())
                 .unwrap();
         });
 
+        // Wait until the worker is about to call save_to_path: a slow thread
+        // start must not look like the save blocking on the lock.
+        started
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
         let waited = finished
             .recv_timeout(std::time::Duration::from_millis(150))
             .is_err();
