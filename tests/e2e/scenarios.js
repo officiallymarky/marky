@@ -41,6 +41,11 @@ const open = async (harness, document = NOTES) => {
   await settle(200);
 };
 
+/** Queues Discard only when the previous scenario left unsaved edits. */
+const discardIfDirty = (harness) => {
+  if (lastTitle(harness)?.dirty) harness.answer("Discard");
+};
+
 /** Waits until `value()` stops changing: Milkdown mounts asynchronously. */
 const settledValue = async (value, timeout = 3000) => {
   const deadline = Date.now() + timeout;
@@ -53,6 +58,17 @@ const settledValue = async (value, timeout = 3000) => {
     last = current;
   }
   return last;
+};
+
+/** Polls `value()` until it is truthy; null when the deadline passes. */
+const waitForValue = async (value, timeout = 5000) => {
+  const deadline = Date.now() + timeout;
+  for (;;) {
+    const found = value();
+    if (found) return found;
+    if (Date.now() >= deadline) return null;
+    await settle(50);
+  }
 };
 
 const keydown = async (init) => {
@@ -74,6 +90,7 @@ export async function runScenarios(harness) {
   const scenarios = [];
   const record = async (name, body) => {
     const checks = [];
+    const problemsBefore = harness.state.problems.length;
     const expect = (label, ok, detail) =>
       checks.push({ label, ok: Boolean(ok), detail: ok ? undefined : detail });
     let error = null;
@@ -81,6 +98,21 @@ export async function runScenarios(harness) {
       await body(expect);
     } catch (caught) {
       error = String(caught?.stack ?? caught);
+    }
+    const newProblems = harness.state.problems.slice(problemsBefore);
+    if (newProblems.length) {
+      checks.push({
+        label: "no uncaught error escapes the scenario",
+        ok: false,
+        detail: newProblems.join("; "),
+      });
+    }
+    if (harness.state.answers.length) {
+      checks.push({
+        label: "every scripted dialog answer is consumed",
+        ok: false,
+        detail: JSON.stringify(harness.state.answers),
+      });
     }
     scenarios.push({
       name,
@@ -125,7 +157,7 @@ export async function runScenarios(harness) {
 
   await record("raw mode shows the source and returns to the editor", async (expect) => {
     // The recovered copy starts in raw mode; this scenario needs the editor.
-    harness.answer("Discard");
+    discardIfDirty(harness);
     await open(harness, NOTES);
     await menu(harness, "raw");
     const raw = document.querySelector("#raw-editor");
@@ -150,7 +182,7 @@ export async function runScenarios(harness) {
   });
 
   await record("the find bar shows while it is open", async (expect) => {
-    harness.answer("Discard");
+    discardIfDirty(harness);
     await open(harness, NOTES);
     await keydown({ key: "f", ctrlKey: true });
     expect("the find bar is visible", visible(document.querySelector("#find-bar")));
@@ -169,7 +201,7 @@ export async function runScenarios(harness) {
     harness.reset();
     // The mode round trip can leave the buffer dirty, so answer the
     // unsaved-changes confirmation before opening.
-    harness.answer("Discard");
+    discardIfDirty(harness);
     await open(harness, {
       path: "/tmp/other.md",
       name: "other.md",
@@ -191,7 +223,7 @@ export async function runScenarios(harness) {
   });
 
   await record("saving writes the buffer and clears the unsaved mark", async (expect) => {
-    harness.answer("Discard");
+    discardIfDirty(harness);
     await open(harness, NOTES);
     await editSource(harness, "A new line\n");
     expect("an edited document is marked unsaved", lastTitle(harness)?.dirty === true);
@@ -217,7 +249,7 @@ export async function runScenarios(harness) {
   });
 
   await record("overlapping transitions never mount two editors", async (expect) => {
-    harness.answer("Discard");
+    discardIfDirty(harness);
     await open(harness, NOTES);
     harness.reset();
 
@@ -243,7 +275,7 @@ export async function runScenarios(harness) {
   });
 
   await record("an outside change is adopted when nothing is unsaved", async (expect) => {
-    harness.answer("Discard");
+    discardIfDirty(harness);
     await open(harness, NOTES);
     harness.file(NOTES.path, "# Title\n\nOutside edit\n");
     harness.reset();
@@ -265,7 +297,7 @@ export async function runScenarios(harness) {
   });
 
   await record("unsaved edits are kept when the outside change is refused", async (expect) => {
-    harness.answer("Discard");
+    discardIfDirty(harness);
     await open(harness, NOTES);
     await editSource(harness, "My unsaved line\n");
 
@@ -285,7 +317,7 @@ export async function runScenarios(harness) {
   });
 
   await record("a command that fails is reported, not dropped", async (expect) => {
-    harness.answer("Discard");
+    discardIfDirty(harness);
     await open(harness, NOTES);
     await editSource(harness, "Unsaved line\n");
     harness.reset();
@@ -317,7 +349,7 @@ export async function runScenarios(harness) {
   });
 
   await record("the table dialog and the toolbar menus announce themselves", async (expect) => {
-    harness.answer("Discard");
+    discardIfDirty(harness);
     await open(harness, NOTES);
 
     // A <dialog> is not named by the heading inside it unless it says so.
@@ -363,7 +395,7 @@ export async function runScenarios(harness) {
   });
 
   await record("replace all rewrites the document in rich mode", async (expect) => {
-    harness.answer("Discard");
+    discardIfDirty(harness);
     await open(harness, NOTES);
     await keydown({ key: "f", ctrlKey: true });
     const find = document.querySelector("#find-input");
@@ -400,7 +432,7 @@ export async function runScenarios(harness) {
   });
 
   await record("a mermaid block renders as a diagram", async (expect) => {
-    harness.answer("Discard");
+    discardIfDirty(harness);
     await open(harness, {
       path: "/tmp/diagram.md",
       name: "diagram.md",
@@ -428,7 +460,7 @@ export async function runScenarios(harness) {
   });
 
   await record("a byte-order mark survives a save", async (expect) => {
-    harness.answer("Discard");
+    discardIfDirty(harness);
     await open(harness, {
       path: "/tmp/bom.md",
       name: "bom.md",
@@ -456,7 +488,7 @@ export async function runScenarios(harness) {
   });
 
   await record("a document with an untitled image opens", async (expect) => {
-    harness.answer("Discard");
+    discardIfDirty(harness);
     await open(harness, {
       path: "/tmp/untitled-image.md",
       name: "untitled-image.md",
@@ -479,7 +511,7 @@ export async function runScenarios(harness) {
   });
 
   await record("local images load and remote images wait to be allowed", async (expect) => {
-    harness.answer("Discard");
+    discardIfDirty(harness);
     await open(harness, {
       path: "/tmp/pictures/images.md",
       name: "images.md",
@@ -509,6 +541,137 @@ export async function runScenarios(harness) {
     );
     await menu(harness, "remote-images");
     expect("turning them off again blocks it", Boolean(placeholder()));
+  });
+
+  await record("mermaid labels cannot embed remote images", async (expect) => {
+    discardIfDirty(harness);
+    await open(harness, {
+      path: "/tmp/mermaid-label.md",
+      name: "mermaid-label.md",
+      content:
+        "# Label\n\n```mermaid\nflowchart LR\n  A[\"<img src='https://mermaid-remote.invalid/p.png'>\"]\n```\n",
+    });
+    await settledValue(
+      () => document.querySelector("#editor .mermaid-render svg")?.outerHTML.length ?? 0,
+    );
+
+    const rendered = document.querySelector("#editor .mermaid-render");
+    expect(
+      "the diagram rendered",
+      Boolean(rendered?.querySelector("svg")),
+      rendered?.className,
+    );
+    expect(
+      "the label cannot embed an image",
+      !rendered?.querySelector("img"),
+      rendered?.innerHTML.slice(0, 400),
+    );
+    expect(
+      "no remote URL reaches the rendered diagram",
+      !(rendered?.innerHTML ?? "").includes("mermaid-remote.invalid"),
+    );
+  });
+
+  await record("a save conflict applies the chosen action", async (expect) => {
+    harness.state.answers.length = 0;
+    discardIfDirty(harness);
+    await open(harness, NOTES);
+    await editSource(harness, "My edit\n");
+
+    harness.reset();
+    harness.conflict("changed");
+    harness.answer("Overwrite");
+    await menu(harness, "save");
+    await settle(200);
+
+    const saves = harness.calls("save_document").map((call) => call.args);
+    expect("the conflict was surfaced before writing", saves.length === 2, JSON.stringify(saves));
+    expect("the first write was refused", saves[0]?.force !== true);
+    expect("the chosen overwrite forces the write", saves[1]?.force === true);
+    expect(
+      "the forced write carries the buffer",
+      saves[1]?.content?.includes("My edit"),
+      saves[1]?.content,
+    );
+    expect(
+      "the file holds the overwritten text",
+      harness.state.files.get(NOTES.path)?.includes("My edit"),
+      harness.state.files.get(NOTES.path),
+    );
+    expect("the document is clean again", lastTitle(harness)?.dirty === false);
+
+    // Choosing Reload from disk adopts the outside version instead.
+    await editSource(harness, "Second edit\n");
+    harness.file(NOTES.path, "# Title\n\nDisk version\n");
+    harness.reset();
+    harness.conflict("changed");
+    harness.answer("Reload from disk");
+    await menu(harness, "save");
+    await settle(300);
+
+    const reloadSaves = harness.calls("save_document").map((call) => call.args);
+    expect("the reload did not write", reloadSaves.length === 1 && reloadSaves[0]?.force !== true);
+    expect("the reload was requested", harness.calls("load_document").length === 1);
+    expect(
+      "the editor adopts the disk version",
+      text(editor()).includes("Disk version"),
+      text(editor()),
+    );
+    expect("the buffer is clean", lastTitle(harness)?.dirty === false);
+  });
+
+  await record("spell check underlines and fixes a misspelling", async (expect) => {
+    harness.state.answers.length = 0;
+    discardIfDirty(harness);
+    await open(harness, {
+      path: "/tmp/spell.md",
+      name: "spell.md",
+      content: "# Spell\n\nThis is a tset of the checker.\n",
+    });
+
+    // Harper runs in a worker and the first run loads its wasm module.
+    const lint = await waitForValue(
+      () => document.querySelector("#editor .md-lint-spelling"),
+      20000,
+    );
+    expect(
+      "the misspelling is underlined",
+      Boolean(lint),
+      document.querySelector("#editor")?.innerHTML.slice(0, 300),
+    );
+    if (!lint) return;
+
+    // Click the flagged word; the panel positions itself from the coordinates.
+    const rect = lint.getBoundingClientRect();
+    lint.dispatchEvent(
+      new MouseEvent("click", {
+        bubbles: true,
+        clientX: rect.left + rect.width / 2,
+        clientY: rect.top + rect.height / 2,
+      }),
+    );
+    await settle(100);
+    const popover = document.querySelector(".lint-popover");
+    expect(
+      "the suggestion panel opens",
+      Boolean(popover && !popover.hidden),
+      popover?.textContent,
+    );
+    const fix = popover?.querySelector("button.lint-fix");
+    expect("Harper offers a correction", Boolean(fix), popover?.textContent);
+    fix?.click();
+    await settle(200);
+
+    expect(
+      "the correction replaces the flagged word",
+      !text(editor()).includes("tset"),
+      text(editor()),
+    );
+    expect(
+      "the document still holds the sentence",
+      text(editor()).includes("This is a"),
+      text(editor()),
+    );
   });
 
   return {

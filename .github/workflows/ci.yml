@@ -89,6 +89,11 @@ jobs:
       - name: Verify
         run: just verify
 
+      - name: Scripted UI checks
+        # Headless Chrome is preinstalled on the runner. These scenarios are the
+        # only coverage of the editor, toolbar, Mermaid and spell-check wiring.
+        run: just e2e
+
       - name: Build bundles
         if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
         # Never set CARGO_NET_OFFLINE here: the linuxdeploy step needs the network.

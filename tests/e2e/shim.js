@@ -25,6 +25,7 @@
     window: { destroyed: 0, closed: 0, titles: [] },
     recent: [],
     adopted: [],
+    conflict: null,
   };
 
   const fileName = (path) => String(path).split("/").pop() || String(path);
@@ -97,8 +98,12 @@
       state.open = null;
       return picked;
     },
-    save_document: ({ path, content }) => {
+    save_document: ({ path, content, force }) => {
       if (!path) return { path: null, name: null };
+      if (state.conflict && !force) {
+        return { path, name: fileName(path), conflict: state.conflict };
+      }
+      state.conflict = null;
       state.files.set(path, content);
       state.recent = [path, ...state.recent.filter((entry) => entry !== path)].slice(0, 10);
       return { path, name: fileName(path) };
@@ -200,6 +205,10 @@
     answer(label) {
       state.answers.push(label);
     },
+    /** Makes the next unforced save report this conflict kind. */
+    conflict(kind) {
+      state.conflict = kind;
+    },
     /** Makes the next `count` calls to `command` reject. */
     fail(command, count = 1) {
       state.failures.set(command, count);
@@ -218,6 +227,8 @@
       state.calls.length = 0;
       state.dialogs.length = 0;
       state.problems.length = 0;
+      state.answers.length = 0;
+      state.conflict = null;
     },
   };
 })();

@@ -29,7 +29,10 @@ export function combineFrontmatter(
   front: string | null,
   body: string,
 ): string {
-  const block = !front ? "" : front.endsWith("\n") ? front : `${front}\n`;
+  // A block at EOF without a trailing newline is already complete; only a
+  // non-empty body needs the separator, and splitFrontmatter never produces
+  // that combination without one.
+  const block = !front ? "" : front.endsWith("\n") || !body ? front : `${front}\n`;
   return `${bom}${block}${body}`;
 }
 

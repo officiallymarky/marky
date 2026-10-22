@@ -109,9 +109,43 @@ test("rejoining the split parts restores the document", () => {
     "---\n\n---\n\nBody\n",
     "plain text\n",
     `${MARK}# heading\n`,
+    "---\ntitle: x\n---",
     `${MARK}---\ntitle: x\n---\nbody\n`,
     `${MARK}${MARK}text\n`,
   ]) {
+    const { bom, front, body } = splitFrontmatter(markdown);
+    assert.equal(
+      combineFrontmatter(bom, front, body),
+      markdown,
+      JSON.stringify(markdown),
+    );
+  }
+});
+
+test("generated documents always rejoin byte-for-byte", () => {
+  // Deterministic LCG: failures are reproducible without a test dependency.
+  let seed = 0x9e3779b9;
+  const next = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32;
+  const parts = [
+    "---",
+    "--- ",
+    "\n",
+    "\r\n",
+    "title: x",
+    "body",
+    " ",
+    MARK,
+    "# heading",
+    "- item",
+    ":",
+    "---\n",
+  ];
+  for (let caseIndex = 0; caseIndex < 300; caseIndex += 1) {
+    let markdown = "";
+    const count = 1 + Math.floor(next() * 10);
+    for (let part = 0; part < count; part += 1) {
+      markdown += parts[Math.floor(next() * parts.length)];
+    }
     const { bom, front, body } = splitFrontmatter(markdown);
     assert.equal(
       combineFrontmatter(bom, front, body),

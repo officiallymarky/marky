@@ -67,15 +67,14 @@ impl RecentStore {
         let result = (|| {
             let target = self.root.join("list.json");
             let mut paths: Vec<String> = match fs::read(&target) {
-                Ok(bytes) => serde_json::from_slice(&bytes).map_err(io::Error::other)?,
+                // A damaged or foreign list must not wedge the feature: start
+                // over instead of failing every open, save and clear.
+                Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_default(),
                 Err(error) if error.kind() == io::ErrorKind::NotFound => Vec::new(),
                 Err(error) => return Err(error),
             };
             if paths.len() > LIMIT || paths.iter().any(|path| !Path::new(path).is_absolute()) {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "invalid recent files list",
-                ));
+                paths.clear();
             }
             match change {
                 Access::Read => return Ok(paths),
@@ -283,5 +282,22 @@ mod tests {
             .remember(&fixture.0.join(".").join("notes.md"))
             .unwrap();
         assert_eq!(store.paths().unwrap(), vec![path.to_str().unwrap()]);
+    }
+
+    #[test]
+    fn a_corrupt_recent_list_is_discarded_instead_of_blocking_history() {
+        let fixture = Fixture::new();
+        let store = fixture.store();
+        let list = fixture.0.join("recent").join("list.json");
+        let path = fixture.document("notes.md");
+
+        fs::write(&list, "{not json").unwrap();
+        assert_eq!(store.paths().unwrap(), Vec::<String>::new());
+        store.remember(&path).unwrap();
+        assert_eq!(store.paths().unwrap(), vec![path.to_str().unwrap()]);
+
+        // Valid JSON that is not a usable absolute-path list is discarded too.
+        fs::write(&list, r#"["relative.md"]"#).unwrap();
+        assert_eq!(store.paths().unwrap(), Vec::<String>::new());
     }
 }

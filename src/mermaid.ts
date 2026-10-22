@@ -132,6 +132,12 @@ class MermaidBlockView {
       mermaid.initialize({
         startOnLoad: false,
         securityLevel: "strict",
+        // Labels are HTML inside the SVG, and DOMPurify keeps <img> by default:
+        // that would fetch a remote image with the Remote Images setting off.
+        dompurifyConfig: {
+          FORBID_TAGS: ["img", "style"],
+          FORBID_ATTR: ["style"],
+        },
         theme: document.documentElement.classList.contains("dark")
           ? "dark"
           : "default",
