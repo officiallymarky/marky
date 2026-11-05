@@ -4,11 +4,16 @@ import type { Node as ProseNode } from "@milkdown/kit/prose/model";
 import type { ViewMutationRecord } from "@milkdown/kit/prose/view";
 import { $prose } from "@milkdown/kit/utils";
 import mermaid from "mermaid";
+import { IMAGES_CHANGED_EVENT, remoteImagesAllowed } from "./images";
+import { hasRemoteMermaidImages } from "./mermaid-images";
+import { parseSanitizedMermaidSvg } from "./mermaid-svg";
 
 const RENDER_DEBOUNCE_MS = 300;
 // Shared across all node views: mermaid reuses an existing element with the
 // given id, so ids must be globally unique, not per view.
 let nextMermaidId = 0;
+// The image preflight and draw must share the same Mermaid configuration/DB.
+let renderQueue = Promise.resolve();
 
 /**
  * Node view for `code_block` nodes: keeps the fence source editable and, for
@@ -18,6 +23,10 @@ let nextMermaidId = 0;
  */
 class MermaidBlockView {
   private themeListener = () => this.scheduleRender();
+  private imagesListener = () => {
+    this.reset();
+    this.scheduleRender();
+  };
   dom: HTMLElement;
   contentDOM: HTMLElement;
 
@@ -50,6 +59,7 @@ class MermaidBlockView {
     this.dom.append(pre, this.diagramEl, this.errorEl);
     this.resizeObserver.observe(this.diagramEl);
     document.addEventListener(THEME_CHANGED_EVENT, this.themeListener);
+    document.addEventListener(IMAGES_CHANGED_EVENT, this.imagesListener);
     this.scheduleRender();
   }
 
@@ -88,9 +98,11 @@ class MermaidBlockView {
   }
 
   destroy(): void {
+    this.renderSeq += 1;
     clearTimeout(this.renderTimer);
     this.resizeObserver.disconnect();
     document.removeEventListener(THEME_CHANGED_EVENT, this.themeListener);
+    document.removeEventListener(IMAGES_CHANGED_EVENT, this.imagesListener);
   }
 
   /**
@@ -114,13 +126,17 @@ class MermaidBlockView {
 
   private scheduleRender() {
     if (this.renderTimer) clearTimeout(this.renderTimer);
-    this.renderTimer = setTimeout(() => void this.render(), RENDER_DEBOUNCE_MS);
+    const seq = ++this.renderSeq;
+    this.renderTimer = setTimeout(() => {
+      renderQueue = renderQueue.then(async () => {
+        if (seq === this.renderSeq) await this.render(seq);
+      });
+    }, RENDER_DEBOUNCE_MS);
   }
 
-  private async render() {
+  private async render(seq: number) {
     const text = this.node.textContent;
     this.lastRenderedText = text;
-    const seq = ++this.renderSeq;
 
     if (!this.isMermaid(this.node) || !text.trim()) {
       this.reset();
@@ -132,8 +148,8 @@ class MermaidBlockView {
       mermaid.initialize({
         startOnLoad: false,
         securityLevel: "strict",
-        // Labels are HTML inside the SVG, and DOMPurify keeps <img> by default:
-        // that would fetch a remote image with the Remote Images setting off.
+        // HTML labels never embed images. Image-shape metadata is checked
+        // separately before draw, where Mermaid starts its image requests.
         dompurifyConfig: {
           FORBID_TAGS: ["img", "style"],
           FORBID_ATTR: ["style"],
@@ -142,7 +158,11 @@ class MermaidBlockView {
           ? "dark"
           : "default",
       });
-      await mermaid.parse(text);
+      const remote = await hasRemoteMermaidImages(text, document.baseURI);
+      if (seq !== this.renderSeq) return;
+      if (remote && !remoteImagesAllowed()) {
+        throw new Error("Remote images are disabled. Use View → Remote Images to render this diagram.");
+      }
       // Mermaid sanitizes its SVG output (DOMPurify, securityLevel "strict").
       // Pass this view's element as the render container: with no container,
       // mermaid appends a temporary render div to <body>, which is a flex
@@ -150,13 +170,17 @@ class MermaidBlockView {
       // frames the async render takes, visibly jolting the page (the
       // theme-switch statusbar flicker). A container keeps the temp element
       // out of the body's flow.
+      // WebKit measures HTML labels at zero height under display:none.
+      // Keep the pane measurable without painting Mermaid's temporary DOM.
+      this.diagramEl.style.visibility = "hidden";
+      this.diagramEl.hidden = false;
       const { svg } = await mermaid.render(
         `marky-mermaid-${nextMermaidId++}`,
         text,
         this.diagramEl,
       );
       if (seq !== this.renderSeq) return; // a newer render superseded us
-      this.diagramEl.innerHTML = svg;
+      this.diagramEl.replaceChildren(parseSanitizedMermaidSvg(svg));
       this.diagramEl.hidden = false;
       this.errorEl.hidden = true;
       this.applySvgSize();
@@ -166,6 +190,8 @@ class MermaidBlockView {
         err instanceof Error ? err.message : String(err);
       this.errorEl.hidden = false;
       this.diagramEl.hidden = true;
+    } finally {
+      this.diagramEl.style.removeProperty("visibility");
     }
   }
 

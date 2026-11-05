@@ -44,8 +44,11 @@ Code blocks tagged `mermaid` render live diagrams beneath their editable source,
 with error hints for invalid syntax. See the
 [Mermaid showcase](examples/mermaid-showcase.md) for examples.
 
-HTML in diagram labels is sanitized; image and style tags are stripped, so a
-diagram cannot load a remote resource while remote images are off.
+HTML in diagram labels is sanitized; image and style tags in labels are stripped.
+Only a single sanitized SVG is inserted into the editor.
+Diagram image metadata is checked before rendering: cross-origin HTTP(S) images
+require **View → Remote Images**, otherwise the diagram shows a blocked-image
+notice without fetching the image. Changing the setting re-renders diagrams.
 
 ### Images
 

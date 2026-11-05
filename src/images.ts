@@ -6,7 +6,7 @@ import { $prose } from "@milkdown/kit/utils";
 /** Must match `local_image::SCHEME` in the Rust shell. */
 const IMAGE_SCHEME = "marky-image";
 const REMOTE_KEY = "images.remote";
-const CHANGED_EVENT = "marky-images-changed";
+export const IMAGES_CHANGED_EVENT = "marky-images-changed";
 
 /** Where an image's `src` points once resolved against its document. */
 export type ImageSource =
@@ -62,7 +62,7 @@ export function imageSource(src: string, documentPath: string | null): ImageSour
 
 let documentPath: string | null = null;
 
-const refreshImages = () => document.dispatchEvent(new Event(CHANGED_EVENT));
+const refreshImages = () => document.dispatchEvent(new Event(IMAGES_CHANGED_EVENT));
 
 /** Remote images reveal the reader to their host, so they load only on request. */
 export function remoteImagesAllowed(): boolean {
@@ -117,7 +117,7 @@ class ImageView {
     this.placeholder = document.createElement("span");
     this.placeholder.className = "md-image-blocked";
     this.dom.append(this.image, this.placeholder);
-    document.addEventListener(CHANGED_EVENT, this.render);
+    document.addEventListener(IMAGES_CHANGED_EVENT, this.render);
     this.render();
   }
 
@@ -129,7 +129,7 @@ class ImageView {
   }
 
   destroy(): void {
-    document.removeEventListener(CHANGED_EVENT, this.render);
+    document.removeEventListener(IMAGES_CHANGED_EVENT, this.render);
   }
 }
 

@@ -438,16 +438,24 @@ export async function runScenarios(harness) {
       name: "diagram.md",
       content: "# Diagram\n\n```mermaid\ngraph TD; A-->B;\n```\n",
     });
-    await settledValue(
-      () => document.querySelector("#editor .mermaid-render svg")?.outerHTML.length ?? 0,
-    );
-
-    const rendered = document.querySelector("#editor .mermaid-render");
-    expect(
-      "the diagram is drawn and visible",
-      visible(rendered) && Boolean(rendered?.querySelector("svg")),
-      rendered?.className,
-    );
+    const checkLabels = async (phase) => {
+      const svg = await waitForValue(() => {
+        const candidate = document.querySelector("#editor .mermaid-render svg");
+        return visible(candidate) ? candidate : null;
+      });
+      const labels = [...(svg?.querySelectorAll("foreignObject") ?? [])].map((element) => ({
+        text: element.textContent.trim(),
+        width: element.getBoundingClientRect().width,
+        height: element.getBoundingClientRect().height,
+      }));
+      expect(
+        `both diagram labels have visible layout (${phase})`,
+        visible(svg) && ["A", "B"].every((text) =>
+          labels.some((label) => label.text === text && label.width > 0 && label.height > 0)),
+        JSON.stringify(labels),
+      );
+    };
+    await checkLabels("initial render");
     expect(
       "no render error is shown",
       !visible(document.querySelector("#editor .mermaid-error")),
@@ -457,6 +465,10 @@ export async function runScenarios(harness) {
       document.querySelector("#editor .mermaid-block pre code")?.textContent?.includes("graph TD") === true,
       document.querySelector("#editor .mermaid-block pre code")?.textContent,
     );
+    await menu(harness, "remote-images");
+    await checkLabels("image preference changed");
+    await menu(harness, "remote-images");
+    await checkLabels("image preference restored");
   });
 
   await record("a byte-order mark survives a save", async (expect) => {
@@ -570,6 +582,23 @@ export async function runScenarios(harness) {
       "no remote URL reaches the rendered diagram",
       !(rendered?.innerHTML ?? "").includes("mermaid-remote.invalid"),
     );
+  });
+
+  await record("diagram output cannot import non-SVG or multiple roots", async (expect) => {
+    const { parseSanitizedMermaidSvg } = await import("/src/mermaid-svg.ts");
+    for (const output of [
+      "<div>not a diagram</div>",
+      "<svg></svg><p>outside the diagram</p>",
+      "<svg></svg><svg></svg>",
+    ]) {
+      let refused = false;
+      try {
+        parseSanitizedMermaidSvg(output);
+      } catch (error) {
+        refused = error instanceof Error;
+      }
+      expect("unexpected renderer output is refused", refused, output);
+    }
   });
 
   await record("a save conflict applies the chosen action", async (expect) => {
