@@ -272,11 +272,17 @@ just dev
 ```sh
 pnpm build      # Build the frontend; run before verification on a fresh checkout
 just verify     # Run tests, Oxlint, TypeScript checks, Clippy, and Cargo checks
+just e2e        # Run scripted UI checks in headless Chrome (override with CHROME=)
 just build      # Build the release application and deb, rpm, and AppImage bundles
 ```
 
 Release bundles are written to `src-tauri/target/release/bundle/`. The standalone
 release binary is at `src-tauri/target/release/marky`.
+
+The UI checks use a dedicated server at `http://127.0.0.1:1421`, leaving the
+development server on port 1420 alone. Startup failures report the server or
+browser output and terminate the runner's own processes before exiting. CI
+also limits the UI-check step to ten minutes.
 
 `just scan` runs dependency and secret checks separately and requires
 `osv-scanner` and `betterleaks`. Use `just --list` to see all available recipes.

@@ -92,6 +92,7 @@ jobs:
       - name: Scripted UI checks
         # Headless Chrome is preinstalled on the runner. These scenarios are the
         # only coverage of the editor, toolbar, Mermaid and spell-check wiring.
+        timeout-minutes: 10
         run: just e2e
 
       - name: Build bundles

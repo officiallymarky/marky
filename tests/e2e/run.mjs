@@ -11,6 +11,7 @@ import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const PORT = 1421;
 const PAGE = `http://127.0.0.1:${PORT}/tests/e2e/harness.html`;
@@ -23,7 +24,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function waitFor(what, check, timeout = READY_TIMEOUT_MS) {
   const deadline = Date.now() + timeout;
   for (;;) {
-    const value = await check().catch(() => null);
+    const value = await check();
     if (value) return value;
     if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
     await sleep(100);
@@ -89,26 +90,44 @@ function connect(wsUrl) {
   };
 }
 
+async function waitForProcess(child, name, check) {
+  let output = "";
+  let launchError;
+  for (const stream of [child.stdout, child.stderr]) {
+    stream.on("data", (chunk) => {
+      output = (output + chunk).slice(-16_384);
+    });
+  }
+  child.on("error", (error) => { launchError = error; });
+  try {
+    return await waitFor(name, async () => {
+      if (launchError) throw launchError;
+      if (child.exitCode !== null || child.signalCode !== null) {
+        throw new Error(`${name} exited (${child.exitCode ?? child.signalCode})`);
+      }
+      return check();
+    });
+  } catch (error) {
+    throw new Error(`${error.message}\n${output}`, { cause: error });
+  }
+}
+
 async function startVite() {
-  const server = spawn("pnpm", ["exec", "vite", "--port", String(PORT), "--strictPort"], {
+  const cli = fileURLToPath(new URL("./bin/vite.js", import.meta.resolve("vite/package.json")));
+  // Match PAGE's address, regardless of how localhost resolves on the runner.
+  // Spawn Vite directly so cleanup owns it, not a package-manager wrapper.
+  server = spawn(process.execPath, [cli, "--host", "127.0.0.1", "--port", String(PORT), "--strictPort"], {
     stdio: ["ignore", "pipe", "pipe"],
   });
-  let output = "";
-  server.stdout.on("data", (chunk) => (output += chunk));
-  server.stderr.on("data", (chunk) => (output += chunk));
-  await waitFor("the dev server", async () => {
-    if (server.exitCode !== null) {
-      throw new Error(`vite exited with ${server.exitCode}:\n${output}`);
-    }
-    const response = await fetch(PAGE);
-    return response.ok;
+  await waitForProcess(server, "the dev server", async () => {
+    const response = await fetch(PAGE, { signal: AbortSignal.timeout(1_000) }).catch(() => null);
+    return response?.ok;
   });
-  return server;
 }
 
 async function startChrome() {
-  const profile = await mkdtemp(join(tmpdir(), "marky-e2e-"));
-  const chrome = spawn(
+  profile = await mkdtemp(join(tmpdir(), "marky-e2e-"));
+  chrome = spawn(
     CHROME,
     [
       "--headless=new",
@@ -123,10 +142,30 @@ async function startChrome() {
     { stdio: ["ignore", "pipe", "pipe"] },
   );
   const portFile = join(profile, "DevToolsActivePort");
-  const port = await waitFor("chrome's debug port", async () =>
-    (await readFile(portFile, "utf8")).split("\n")[0] || null,
-  );
-  return { chrome, profile, port };
+  port = await waitForProcess(chrome, "chrome's debug port", async () => {
+    try {
+      return (await readFile(portFile, "utf8")).split("\n")[0] || null;
+    } catch (error) {
+      if (error.code === "ENOENT") return null;
+      throw error;
+    }
+  });
+}
+
+async function stop(child) {
+  if (!child?.pid) return;
+  if (child.exitCode === null && child.signalCode === null) {
+    const exited = new Promise((resolve) => child.once("exit", resolve));
+    child.kill("SIGTERM");
+    const force = setTimeout(() => child.kill("SIGKILL"), 2_000);
+    try {
+      await exited;
+    } finally {
+      clearTimeout(force);
+    }
+  }
+  child.stdout.destroy();
+  child.stderr.destroy();
 }
 
 async function openTarget(port) {
@@ -161,8 +200,8 @@ let profile;
 let client;
 let port;
 try {
-  server = await startVite();
-  ({ chrome, profile, port } = await startChrome());
+  await startVite();
+  await startChrome();
   client = connect(await openTarget(port));
   await client.ready;
   await client.send("Runtime.enable");
@@ -192,7 +231,6 @@ try {
   process.exitCode = 1;
 } finally {
   client?.close();
-  chrome?.kill("SIGTERM");
-  server?.kill("SIGTERM");
+  await Promise.all([stop(chrome), stop(server)]);
   if (profile) await rm(profile, { recursive: true, force: true }).catch(() => {});
 }
