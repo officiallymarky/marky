@@ -101,6 +101,39 @@ test("multi-line known values are reported unsupported", () => {
   assert.equal(supported, false);
 });
 
+test("folded known scalars refuse changes and deletion without stranding continuation lines", () => {
+  for (const key of ["title", "status"]) {
+    for (const separator of ["\n", "\n\n", "\n  # comment\n", "\r\n"]) {
+      const front = `---\n${key}: Old${separator}  still part of the value\ncustom: keep\n---\n`;
+      const read = readKnownFields(front);
+      assert.equal(read.supported, false);
+      for (const value of ["New", ""]) {
+        assert.equal(
+          updateFrontMatterBlock(front, { ...read.prefill, [key]: value }),
+          null,
+        );
+      }
+    }
+  }
+});
+
+test("decoded controls stay escaped when known fields are written back to YAML", () => {
+  for (const control of ["\0", "\t", "\n", "\r", "\x7f", "\x80", "\x85", "\x9f", "\u2028", "\u2029"]) {
+    const quoted = `"a\\u${control.charCodeAt(0).toString(16).padStart(4, "0")}b"`;
+    const front = `---\ntitle: ${quoted}\nstatus: ${quoted}\ntags: [${quoted}]\naliases: [${quoted}]\n---\n`;
+    const read = readKnownFields(front);
+    assert.equal(read.supported, true);
+    assert.equal(read.prefill.title, `a${control}b`);
+    for (const written of [
+      updateFrontMatterBlock(front, read.prefill),
+      buildFrontMatterBlock(read.prefill),
+    ]) {
+      assert.doesNotMatch(written, /[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u2028\u2029]/);
+      assert.deepEqual(readKnownFields(written), read);
+    }
+  }
+});
+
 test("scalar values the dialog cannot read block the rewrite", () => {
   for (const value of [
     "!!str Example", // explicit tag

@@ -79,10 +79,12 @@ body. Front matter is kept separate from rich-text serialization, preserving its
 contents when you edit the document body.
 
 The **Front Matter** dialog creates or updates a title, date, tags, aliases, and
-status. It preserves unrelated YAML and refuses unsupported multiline values or
-list syntax rather than rewriting them unsafely; use the front-matter panel or
-source mode for those edits. A supported single-line `title` value becomes the
-window title; otherwise, marky uses the file name.
+status. It preserves unrelated YAML and refuses unsupported multiline values,
+including indented continuations of inline values, or list syntax rather than
+rewriting them unsafely; use the front-matter panel or source mode for those
+edits. Control characters in supported values are escaped when writing YAML.
+A supported single-line `title` value becomes the window title; otherwise,
+marky uses the file name.
 
 ### File protection
 

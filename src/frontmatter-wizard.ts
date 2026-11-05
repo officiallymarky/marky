@@ -15,6 +15,14 @@ interface FrontMatterFields {
 /** Keys the dialog reads and updates; everything else is preserved as-is. */
 const KNOWN_KEYS = ["title", "date", "tags", "aliases", "status"] as const;
 
+/** JSON quoting plus escapes for characters YAML rejects or treats as line breaks. */
+function quotedScalar(value: string): string {
+  return JSON.stringify(value).replace(
+    /[\u007f-\u009f\u2028\u2029]/g,
+    (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
+}
+
 /**
  * YAML scalar for one-line values: plain when it round-trips safely,
  * otherwise a double-quoted scalar (JSON escaping, which is valid YAML).
@@ -26,12 +34,13 @@ function scalar(value: string): string {
     /^(?:[-?:,[\]{}#&*!|>'"%@`])/.test(trimmed) ||
     /[:]|[#]/.test(trimmed) ||
     /^(?:~|null|true|false)$/i.test(trimmed) ||
+    /[\p{Cc}\u2028\u2029]/u.test(trimmed) ||
     isYamlNumber(trimmed);
-  return plainUnsafe ? JSON.stringify(trimmed) : trimmed;
+  return plainUnsafe ? quotedScalar(trimmed) : trimmed;
 }
 
 function flowList(items: string[]): string {
-  return `[${items.map((item) => JSON.stringify(item)).join(", ")}]`;
+  return `[${items.map(quotedScalar).join(", ")}]`;
 }
 
 /** Builds the byte-exact front-matter block for the dialog's fields. */
@@ -134,7 +143,11 @@ function keyLine(lines: string[], key: string): KeyPresence {
       const nested = /^[ \t]|^-(?:[ \t]|\r?$)/.test(lines[next] ?? "");
       return { line: nested ? -2 : index, complex: nested };
     }
-    return { line: index, complex: false };
+    // Inline plain scalars can continue after blank or comment lines too.
+    let next = index + 1;
+    while (next < lines.length && /^(?:[ \t]*|[ \t]*#.*)\r?$/.test(lines[next])) next += 1;
+    const continued = /^[ \t]/.test(lines[next] ?? "");
+    return { line: continued ? -2 : index, complex: continued };
   }
   return { line: -1, complex: false };
 }
