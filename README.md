@@ -111,8 +111,11 @@ or **Keep editing**. Read-only files are rejected on save. Atomic replacement is
 used where file metadata can be preserved; files that require in-place writes,
 such as hard-linked files, retain that behavior.
 
-Atomic saves are fully synced to disk — file contents and the directory entry —
-so a completed save survives power loss.
+Atomic saves sync file contents before replacement, then flush the parent
+directory on Unix and Windows. Windows opens the directory with write access
+and backup semantics before flushing it with `FlushFileBuffers`. Flush failures
+are reported, not silently ignored. The recent-files list uses the same strategy.
+Durability still depends on the filesystem and storage honoring flush requests.
 
 ### Crash recovery
 
@@ -122,9 +125,9 @@ documents, rich-editor and source-mode edits, and front matter. They do **not**
 save over the original Markdown file.
 
 Snapshots are scheduled after a 500 ms pause in editing, or within a two-second
-window during continuous typing. Writes use atomic replacement and filesystem
-syncs. Each document session has its own snapshot; running instances cannot
-claim or discard one another's active backups.
+window during continuous typing. Writes use the same platform-specific sync and
+replacement behavior as document saves. Each document session has its own
+snapshot; running instances cannot claim or discard one another's active backups.
 
 On startup, snapshots left by a stopped instance offer **Restore**, **Discard**,
 or **Later**. Restore opens the recovered source in raw mode as an **unsaved
@@ -299,6 +302,7 @@ also limits the UI-check step to ten minutes.
 | `src/document-history.ts` | Bounded undo/redo timeline shared by rich text, source and front matter |
 | `src/recovery.ts` | Debounced recovery snapshots, serialized writes, and save/discard cleanup |
 | `src-tauri/src/recovery.rs` | Private, atomic snapshot storage and multi-instance recovery locks |
+| `src-tauri/src/file_commit.rs` | Parent-directory flushing on Unix and Windows |
 | `tests/` | Frontend behavioral tests |
 | `examples/` | Sample Markdown documents |
 

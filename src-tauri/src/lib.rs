@@ -15,6 +15,9 @@ use tauri::Emitter;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_dialog::{DialogExt, FilePath};
 
+use file_commit::sync_directory;
+
+mod file_commit;
 mod local_image;
 mod native_menu;
 mod recovery;
@@ -763,19 +766,6 @@ fn atomic_write_with(
     )))
 }
 
-/// Sync the directory entry so a completed rename survives power loss.
-/// The standard library cannot open directories on Windows, so only Unix can
-/// enforce this.
-#[cfg(unix)]
-fn sync_directory(dir: &Path) -> io::Result<()> {
-    fs::File::open(dir)?.sync_all()
-}
-
-#[cfg(not(unix))]
-fn sync_directory(_: &Path) -> io::Result<()> {
-    Ok(())
-}
-
 #[tauri::command]
 async fn save_document(
     app: AppHandle,
@@ -1225,7 +1215,6 @@ mod tests {
     fn sync_directory_opens_real_directories() {
         let directory = temporary_directory();
         assert!(sync_directory(&directory).is_ok());
-        #[cfg(unix)]
         assert!(sync_directory(&directory.join("missing")).is_err());
         fs::remove_dir(&directory).unwrap();
     }

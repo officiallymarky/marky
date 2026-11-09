@@ -4,9 +4,8 @@
 //! whole active session, so any process can tell live snapshots apart from
 //! orphans left behind by a crash. The lock lives on the sidecar, not on the
 //! snapshot inode: the sidecar is created once and never rewritten, while the
-//! content file itself is replaced atomically through a temp file, `sync`,
-//! `rename`, and a parent directory sync, so a failed write always leaves the
-//! previous snapshot intact and nothing outside this directory is ever
+//! content file itself is replaced atomically through a synced temp file,
+//! rename, and parent directory sync. Nothing outside this directory is ever
 //! touched.
 //!
 //! Sidecar files are only removed or created while the caller holds the
@@ -17,9 +16,8 @@
 //! On Unix the files are private through modes 0600/0700 and the locks are
 //! `flock`. On Windows the per-user application data directory provides the
 //! privacy, the locks are `LockFileEx`, and removing an open sidecar relies on
-//! the POSIX delete semantics NTFS has used since Windows 10 1809. Windows
-//! cannot sync a directory, so a rename there is durable only once the
-//! filesystem commits it.
+//! the POSIX delete semantics NTFS has used since Windows 10 1809. Directory
+//! changes are flushed on both platforms.
 
 use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions, TryLockError};
@@ -33,7 +31,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
-use crate::sync_directory;
+use crate::file_commit::sync_directory;
 
 const SNAPSHOT_SUFFIX: &str = ".json";
 const LOCK_SUFFIX: &str = ".lock";
@@ -469,9 +467,9 @@ fn planted_link(path: &Path) -> Option<String> {
     }
 }
 
-/// Removes a snapshot and its sidecar durably: the recovery directory is
-/// synced after the JSON removal (before the sidecar is unlinked) and again
-/// after the sidecar removal, so a crash cannot resurrect either file.
+/// Removes a snapshot and its sidecar. The recovery directory is synced after
+/// the JSON removal (before the sidecar is unlinked) and again after the
+/// sidecar removal.
 /// Absent files count as already removed.
 fn remove_snapshot(root: &Path, json_path: &Path, lock_path: &Path) -> io::Result<()> {
     remove_file_durably(root, json_path)?;
@@ -550,9 +548,8 @@ fn open_lock_file(path: &Path) -> io::Result<File> {
         .open(path)
 }
 
-/// Replaces `path` atomically: write to a unique temp file, sync it, rename
-/// it over the target, then sync the directory so the rename itself is
-/// durable. A failure anywhere before the rename leaves the target untouched.
+/// Replaces `path` through a synced temp file, rename, and directory sync.
+/// A write failure before replacement leaves the target untouched.
 fn atomic_replace(path: &Path, payload: &[u8]) -> io::Result<()> {
     let parent = path.parent().ok_or_else(|| {
         io::Error::new(io::ErrorKind::InvalidInput, "snapshot path has no parent directory")

@@ -7,8 +7,8 @@
       "version": "0.18.5",
       "ecosystem": "crates.io",
       "source": { "type": "lockfile", "path": "src-tauri/Cargo.lock" },
-      "approvedAt": "2026-10-07T00:00:00.000Z",
-      "expiresAt": "2026-11-06T00:00:00.000Z",
+      "approvedAt": "2026-11-09T00:00:00.000Z",
+      "expiresAt": "2026-12-09T00:00:00.000Z",
       "reason": "Owner accepted the residual memory-safety risk temporarily. No affected VariantStrIter/array_iter_str callers were found in marky or inspected dependency sources; this is bounded source evidence, not proof of non-exploitability. Re-review if native usage changes.",
       "tracking": "https://github.com/officiallymarky/marky/issues/2"
     },
@@ -18,8 +18,8 @@
       "version": "1.0.4",
       "ecosystem": "crates.io",
       "source": { "type": "lockfile", "path": "src-tauri/Cargo.lock" },
-      "approvedAt": "2026-10-07T00:00:00.000Z",
-      "expiresAt": "2026-11-06T00:00:00.000Z",
+      "approvedAt": "2026-11-09T00:00:00.000Z",
+      "expiresAt": "2026-12-09T00:00:00.000Z",
       "reason": "Owner temporarily accepted an unmaintained compile-time GTK/GLib macro helper. This is a maintenance advisory, not a demonstrated runtime exploit; replacement remains required.",
       "tracking": "https://github.com/officiallymarky/marky/issues/3"
     }
