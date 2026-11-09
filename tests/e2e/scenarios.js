@@ -296,6 +296,34 @@ export async function runScenarios(harness) {
     );
   });
 
+  await record("a failed focus reload retries the same outside version", async (expect) => {
+    discardIfDirty(harness);
+    await open(harness, NOTES);
+    harness.file(NOTES.path, "# Title\n\nRetried outside edit\n");
+    harness.reset();
+    harness.report("changed", "failed-focus-retry");
+    harness.fail("load_document");
+    harness.emit("tauri://focus", {});
+    await waitForValue(() =>
+      harness.state.dialogs.find((dialog) => dialog.title === "Reload failed"),
+    );
+
+    expect("the failed read leaves the original text intact", text(editor()).includes("Hello world"));
+    expect(
+      "the read error is reported",
+      harness.state.dialogs.some((dialog) => dialog.title === "Reload failed"),
+    );
+    harness.emit("tauri://focus", {});
+    await waitForValue(() => text(editor()).includes("Retried outside edit"));
+
+    expect("the same outside version was read again", harness.calls("load_document").length === 2);
+    expect(
+      "the editor adopts the outside text on the next focus",
+      text(editor()).includes("Retried outside edit"),
+      text(editor()),
+    );
+  });
+
   await record("unsaved edits are kept when the outside change is refused", async (expect) => {
     discardIfDirty(harness);
     await open(harness, NOTES);
@@ -314,6 +342,11 @@ export async function runScenarios(harness) {
       text(editor()),
     );
     expect("the outside version is not adopted", !text(editor()).includes("Outside edit"));
+
+    const prompts = harness.state.dialogs.length;
+    harness.emit("tauri://focus", {});
+    await new Promise(requestAnimationFrame);
+    expect("Keep editing acknowledges this outside version", harness.state.dialogs.length === prompts);
   });
 
   await record("a command that fails is reported, not dropped", async (expect) => {

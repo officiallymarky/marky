@@ -959,6 +959,7 @@ appWindow.onCloseRequested(async (event) => {
  * this is a heads-up rather than the last line of defense.
  */
 const acknowledgedExternalChanges = new Map<string, string>();
+const pendingExternalChanges = new Set<string>();
 
 appWindow.onFocusChanged(async ({ payload: focused }) => {
   // Raw mode edits the source textarea, which the rich-editor buffers below
@@ -980,32 +981,43 @@ appWindow.onFocusChanged(async ({ payload: focused }) => {
     return null;
   });
   if (!status || status.status !== "changed" || !isCurrent()) return;
-  // One prompt per outside version, not per focus change.
-  if (acknowledgedExternalChanges.get(path) === status.token) return;
-  acknowledgedExternalChanges.set(path, status.token);
-  await handleExternalChange({
-    isCurrent,
-    revision: () => session.state.revision + (editor?.revision ?? 0),
-    // Milkdown's markdown callback is debounced; include edits still in its view.
-    isDirty: () =>
-      session.state.dirty ||
-      (editor !== null &&
-        combineFrontmatter(documentBom, frontContent, editor.getMarkdown()) !==
-          session.state.content),
-    load: () => loadDocument(path),
-    replace: replaceDocument,
-    confirmReload: () =>
-      ask(
-        `"${session.name}" changed on disk. Reload it and discard your unsaved edits?`,
-        {
-          title: "File changed on disk",
-          kind: "warning",
-          okLabel: "Reload",
-          cancelLabel: "Keep editing",
-        },
-      ),
-    showError,
-  });
+  // In-flight checks suppress duplicate prompts without acknowledging failures.
+  if (
+    pendingExternalChanges.has(path) ||
+    acknowledgedExternalChanges.get(path) === status.token
+  ) return;
+  pendingExternalChanges.add(path);
+  try {
+    const outcome = await handleExternalChange({
+      isCurrent,
+      revision: () => session.state.revision + (editor?.revision ?? 0),
+      // Milkdown's markdown callback is debounced; include edits still in its view.
+      isDirty: () =>
+        session.state.dirty ||
+        (editor !== null &&
+          combineFrontmatter(documentBom, frontContent, editor.getMarkdown()) !==
+            session.state.content),
+      load: () => loadDocument(path),
+      replace: replaceDocument,
+      confirmReload: () =>
+        ask(
+          `"${session.name}" changed on disk. Reload it and discard your unsaved edits?`,
+          {
+            title: "File changed on disk",
+            kind: "warning",
+            okLabel: "Reload",
+            cancelLabel: "Keep editing",
+          },
+        ),
+      showError,
+    });
+    // One completed reload or explicit decision per outside version.
+    if (outcome !== "not-handled") {
+      acknowledgedExternalChanges.set(path, status.token);
+    }
+  } finally {
+    pendingExternalChanges.delete(path);
+  }
 });
 
 /** Focuses the editor, then runs an insert action from the native menu. */

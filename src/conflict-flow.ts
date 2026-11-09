@@ -53,27 +53,35 @@ export interface ExternalChangeDependencies {
   isDirty(): boolean;
   /** Reads the on-disk version without replacing the buffer. */
   load(): Promise<OpenedDocument>;
-  /** Replaces the buffer; the result is not used here. */
-  replace(document: OpenedDocument): Promise<unknown>;
+  /** True when the replacement ran, false when it was superseded. */
+  replace(document: OpenedDocument): Promise<boolean>;
   /** Asked only when the buffer has unsaved edits to lose. */
   confirmReload(): Promise<boolean>;
   showError(title: string, error: unknown): Promise<void>;
 }
 
+export type ExternalChangeOutcome = "reloaded" | "kept-editing" | "not-handled";
+
 /** Adopts an outside edit when the buffer is clean; asks when it is not. */
 export async function handleExternalChange(
   dependencies: ExternalChangeDependencies,
-): Promise<void> {
+): Promise<ExternalChangeOutcome> {
   try {
-    if (!dependencies.isCurrent()) return;
+    if (!dependencies.isCurrent()) return "not-handled";
     const revision = dependencies.revision();
-    if (dependencies.isDirty() && !(await dependencies.confirmReload())) return;
-    if (!dependencies.isCurrent() || dependencies.revision() !== revision) return;
+    const reload = !dependencies.isDirty() || (await dependencies.confirmReload());
+    if (!dependencies.isCurrent() || dependencies.revision() !== revision) {
+      return "not-handled";
+    }
+    if (!reload) return "kept-editing";
     const document = await dependencies.load();
     // A prompt or read must never authorize replacing edits made meanwhile.
-    if (!dependencies.isCurrent() || dependencies.revision() !== revision) return;
-    await dependencies.replace(document);
+    if (!dependencies.isCurrent() || dependencies.revision() !== revision) {
+      return "not-handled";
+    }
+    return (await dependencies.replace(document)) ? "reloaded" : "not-handled";
   } catch (error) {
     await dependencies.showError("Reload failed", error);
+    return "not-handled";
   }
 }

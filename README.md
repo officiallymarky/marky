@@ -98,6 +98,8 @@ marky reloads it the next time the window gains focus. Documents with unsaved
 edits prompt before reloading.
 If you edit the document, reopen it, or switch editing modes while a reload is
 pending, marky abandons that reload rather than replacing your current buffer.
+Failed or abandoned reloads are retried on the next focus. Choosing **Keep
+editing** suppresses further prompts for that same outside version.
 
 The content and version fingerprint come from the same open file, with a
 stability check around the read. A replacement remains detectable as an outside

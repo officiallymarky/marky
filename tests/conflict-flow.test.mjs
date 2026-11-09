@@ -130,7 +130,10 @@ function externalChangeFixture() {
       revision: () => state.revision,
       isDirty: () => state.dirty,
       load: async () => disk,
-      replace: async (document) => { fixture.active.state.load(document.content); },
+      replace: async (document) => {
+        fixture.active.state.load(document.content);
+        return true;
+      },
       confirmReload: async () => { fixture.prompts++; return true; },
       showError: async (title, error) => { fixture.errors.push([title, error.message]); },
     },
@@ -140,7 +143,7 @@ function externalChangeFixture() {
 
 test("a clean buffer adopts an outside edit without asking", async () => {
   const fixture = externalChangeFixture();
-  await handleExternalChange(fixture.dependencies);
+  assert.equal(await handleExternalChange(fixture.dependencies), "reloaded");
   assert.equal(fixture.current.state.content, "disk version");
   assert.equal(fixture.current.state.dirty, false);
   assert.equal(fixture.prompts, 0);
@@ -151,7 +154,10 @@ test("unsaved edits are only replaced when the reload is confirmed", async () =>
     const fixture = externalChangeFixture();
     fixture.current.state.update("unsaved");
     fixture.dependencies.confirmReload = async () => confirmed;
-    await handleExternalChange(fixture.dependencies);
+    assert.equal(
+      await handleExternalChange(fixture.dependencies),
+      confirmed ? "reloaded" : "kept-editing",
+    );
     assert.equal(fixture.current.state.content, confirmed ? "disk version" : "unsaved");
     assert.equal(fixture.current.state.dirty, !confirmed);
   }
@@ -166,7 +172,7 @@ test("edits made during a delayed read survive even if saved before it resolves"
     fixture.current.state.update("typed while loading");
     if (saved) fixture.current.state.markSaved("typed while loading");
     reading.resolve({ content: "disk version" });
-    await pending;
+    assert.equal(await pending, "not-handled");
     assert.equal(fixture.current.state.content, "typed while loading");
     assert.equal(fixture.current.state.dirty, !saved);
   }
@@ -180,7 +186,7 @@ test("editing and undoing during a read still invalidates its revision", async (
   fixture.current.state.update("temporary edit");
   fixture.current.state.update("original");
   reading.resolve({ content: "disk version" });
-  await pending;
+  assert.equal(await pending, "not-handled");
   assert.equal(fixture.current.state.content, "original");
 });
 
@@ -193,7 +199,7 @@ test("a delayed read cannot replace a newly opened document session", async () =
   other.load("new document");
   fixture.active = { state: other };
   reading.resolve({ content: "disk version" });
-  await pending;
+  assert.equal(await pending, "not-handled");
   assert.equal(other.content, "new document");
   assert.equal(fixture.current.state.content, "original");
 });
@@ -213,7 +219,7 @@ test("confirmation does not authorize edits or document switches made during the
       fixture.current.state.update("newer edit");
     }
     confirmation.resolve(true);
-    await pending;
+    assert.equal(await pending, "not-handled");
     assert.equal(fixture.active.state.content, switchDocument ? "new document" : "newer edit");
   }
 });
@@ -225,14 +231,51 @@ test("an unchanged content notification does not cancel a clean reload", async (
   const pending = handleExternalChange(fixture.dependencies);
   fixture.current.state.update("original");
   reading.resolve({ content: "disk version" });
-  await pending;
+  assert.equal(await pending, "reloaded");
   assert.equal(fixture.current.state.content, "disk version");
 });
 
 test("a failed read is reported without replacing the buffer", async () => {
   const fixture = externalChangeFixture();
   fixture.dependencies.load = async () => { throw new Error("unreadable"); };
-  await handleExternalChange(fixture.dependencies);
+  assert.equal(await handleExternalChange(fixture.dependencies), "not-handled");
   assert.equal(fixture.current.state.content, "original");
   assert.deepEqual(fixture.errors, [["Reload failed", "unreadable"]]);
+});
+
+test("a superseded replacement is not acknowledged as a reload", async () => {
+  const fixture = externalChangeFixture();
+  fixture.dependencies.replace = async () => false;
+  assert.equal(await handleExternalChange(fixture.dependencies), "not-handled");
+  assert.equal(fixture.current.state.content, "original");
+});
+
+test("failed confirmation and replacement remain unacknowledged", async () => {
+  for (const operation of ["confirmReload", "replace"]) {
+    const fixture = externalChangeFixture();
+    fixture.current.state.update("unsaved");
+    fixture.dependencies[operation] = async () => { throw new Error("unavailable"); };
+    assert.equal(await handleExternalChange(fixture.dependencies), "not-handled");
+    assert.equal(fixture.current.state.content, "unsaved");
+    assert.deepEqual(fixture.errors, [["Reload failed", "unavailable"]]);
+  }
+});
+
+test("Keep editing cannot acknowledge a document changed during the prompt", async () => {
+  const fixture = externalChangeFixture();
+  fixture.current.state.update("unsaved");
+  const confirmation = deferred();
+  fixture.dependencies.confirmReload = () => confirmation.promise;
+  const pending = handleExternalChange(fixture.dependencies);
+  fixture.current.state.update("newer edit");
+  confirmation.resolve(false);
+  assert.equal(await pending, "not-handled");
+  assert.equal(fixture.current.state.content, "newer edit");
+});
+
+test("a no-longer-current document is not acknowledged", async () => {
+  const fixture = externalChangeFixture();
+  fixture.active = { state: new DocumentState() };
+  assert.equal(await handleExternalChange(fixture.dependencies), "not-handled");
+  assert.equal(fixture.current.state.content, "original");
 });
