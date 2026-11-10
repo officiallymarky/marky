@@ -93,13 +93,16 @@ marky uses the file name.
 
 marky checks for outside changes before overwriting a file. If another program
 has changed or removed it, you can resolve the conflict rather than silently
-replacing the on-disk version. When an unchanged document is updated externally,
-marky reloads it the next time the window gains focus. Documents with unsaved
-edits prompt before reloading.
+replacing the on-disk version. While editing in the rich editor, an unchanged
+document that is updated externally reloads the next time the window gains
+focus. Documents with unsaved edits prompt before reloading. Source mode does
+not run this background check; there, an outside change is still reported when
+you save, or by the next focus check after switching back to the rich editor.
 If you edit the document, reopen it, or switch editing modes while a reload is
 pending, marky abandons that reload rather than replacing your current buffer.
-Failed or abandoned reloads are retried on the next focus. Choosing **Keep
-editing** suppresses further prompts for that same outside version.
+Failed or abandoned reloads are retried on the next focus in the rich editor.
+Choosing **Keep editing** suppresses further prompts for that same outside
+version.
 
 The content and version fingerprint come from the same open file, with a
 stability check around the read. A replacement remains detectable as an outside
