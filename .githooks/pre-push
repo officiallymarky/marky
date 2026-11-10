@@ -3,8 +3,9 @@
 # This does not scan outgoing history: a secret committed and later removed
 # can pass this check.
 #
-# Installed by `just install-hooks` (hooks are not versioned). A missing scanner
-# fails the push rather than silently skipping the working-tree scan.
+# Committed with the pre-commit hook; activate both from the repository root
+# with `just install-hooks` (or `git config --local core.hooksPath .githooks`).
+# A missing scanner fails the push rather than silently skipping the scan.
 #
 # The scan reads the working tree, and betterleaks does not honour .gitignore, so
 # a secret sitting in an ignored local file also blocks the push. That is the

@@ -60,13 +60,13 @@ secrets:
 secrets-staged:
     betterleaks git --staged --config .betterleaks.toml --redact --validation=false --max-target-megabytes 1
 
-# Installs this repository's Git hooks. Hooks are not versioned, so this is the
-# setup step for a fresh clone: pre-commit scans the staged content, pre-push
-# the working tree. Both fail closed when Betterleaks is missing; the pre-push
-# scan does not cover secrets present only in earlier outgoing commits.
+# Activates this repository's tracked Git hooks in .githooks. Run once per
+# clone: pre-commit scans the staged content, pre-push the working tree. Both
+# fail closed when Betterleaks is missing; the pre-push scan does not cover
+# secrets present only in earlier outgoing commits.
 install-hooks:
-    install -Dm755 scripts/hooks/pre-commit .git/hooks/pre-commit
-    install -Dm755 scripts/hooks/pre-push .git/hooks/pre-push
+    git config --local core.hooksPath .githooks
+    chmod +x .githooks/pre-commit .githooks/pre-push
 
 # Online advisory checks for lockfiles and identifiable dependencies embedded
 # in Mermaid's shipped ESM distributions. No dependency code is executed.
