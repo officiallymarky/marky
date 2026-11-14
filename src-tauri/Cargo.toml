@@ -1,6 +1,6 @@
 [package]
 name = "marky"
-version = "0.12.5"
+version = "0.12.6"
 description = "Markdown Editor"
 authors = ["you"]
 edition = "2021"
@@ -15,16 +15,13 @@ name = "marky_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "~2.6", features = [] }
-# Not used directly: tauri 2.11 accepts tauri-codegen 2.7, whose Windows output
-# calls an API that only exists in tauri 2.12. Drop this when tauri moves to 2.12.
-tauri-codegen = { version = "~2.6", default-features = false }
+tauri-build = { version = "~2.7", features = [] }
 
 [dependencies]
-tauri = { version = "~2.11", features = [] }
+tauri = { version = "~2.12", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tauri-plugin-dialog = "~2.7"
+tauri-plugin-dialog = "~2.8"
 percent-encoding = "2.3.2" # Decode file paths in marky-image protocol requests.
 
 [target.'cfg(unix)'.dependencies]
